@@ -41,10 +41,6 @@ public class Register : ModRM {
 
 	public byte Index { get { return idx; } }
 
-	public IndirectRegister Indirect {
-		get { return new IndirectRegister (this); }
-	}
-
     public override void EncodeModRm (Stream buffer, byte constant) {
         buffer.WriteByte (CombineModRM (MOD_R32, idx, constant));
     }
@@ -53,6 +49,9 @@ public class Register : ModRM {
 		return names [idx];
 	}
 
+	public static IndirectRegister operator !(Register reg) {
+		return new IndirectRegister (reg);
+	}
 }
 
 }

@@ -49,27 +49,19 @@ public class IndirectRegisterTest : BuiltinRegisters {
 	[Test]
 	public void IndirectRegNoDisplacement ()
 	{
-		TestEncode (EAX.Indirect, EAX, 0x00);
-		TestEncode (ECX.Indirect, EAX, 0x01);
-		TestEncode (EDX.Indirect, EAX, 0x02);
-		TestEncode (EBX.Indirect, EAX, 0x03);
-		TestEncode (ESP.Indirect, EAX, 0x04, 0x24); //Must use SIB byte
-		TestEncode (EBP.Indirect, EAX, 0x45, 0x00); //Must be encoded as [EBP + 0]
-		TestEncode (ESI.Indirect, EAX, 0x06);
-		TestEncode (EDI.Indirect, EAX, 0x07);
+		TestEncode (!EAX, EAX, 0x00);
+		TestEncode (!ECX, EAX, 0x01);
+		TestEncode (!EDX, EAX, 0x02);
+		TestEncode (!EBX, EAX, 0x03);
+		TestEncode (!ESP, EAX, 0x04, 0x24); //Must use SIB byte
+		TestEncode (!EBP, EAX, 0x45, 0x00); //Must be encoded as [EBP + 0]
+		TestEncode (!ESI, EAX, 0x06);
+		TestEncode (!EDI, EAX, 0x07);
 	}
 
 	[Test]
 	public void IndirectRegSmallDisplacement ()
 	{
-		TestEncode (EAX.Indirect, EAX, 0x00);
-		TestEncode (ECX.Indirect, EAX, 0x01);
-		TestEncode (EDX.Indirect, EAX, 0x02);
-		TestEncode (EBX.Indirect, EAX, 0x03);
-		TestEncode (ESP.Indirect, EAX, 0x04, 0x24); //Must use SIB byte
-		TestEncode (EBP.Indirect, EAX, 0x45, 0x00); //Must be encoded as [EBP + 0]
-		TestEncode (ESI.Indirect, EAX, 0x06);
-		TestEncode (EDI.Indirect, EAX, 0x07);
 	}
 
 }
