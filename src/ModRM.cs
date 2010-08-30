@@ -30,7 +30,20 @@ using System.IO;
 
 namespace SimpleJit {
 
-public abstract class ModRM {
+/*This is a hack to make code doing heavy usage register bearable.*/
+public class BuiltinRegisters {
+	public static readonly Register EAX = new Register (0);
+	public static readonly Register ECX = new Register (1);
+	public static readonly Register EDX = new Register (2);
+	public static readonly Register EBX = new Register (3);
+	public static readonly Register ESP = new Register (4);
+	public static readonly Register EBP = new Register (5);
+	public static readonly Register ESI = new Register (6);
+	public static readonly Register EDI = new Register (7);
+}
+
+
+public abstract class ModRM : BuiltinRegisters {
 	public const byte MOD_R32_PTR = 0x0;
 	public const byte MOD_R32_PTR_DISP8 = 0x1;
 	public const byte MOD_R32_PTR_DISP32 = 0x2;

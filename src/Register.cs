@@ -30,22 +30,12 @@ using System.IO;
 
 namespace SimpleJit {
 
-
 public class Register : ModRM {
 	byte idx;
 
 	static readonly string[] names = { "eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi" }; 
-
-	public static readonly Register EAX = new Register (0);
-	public static readonly Register ECX = new Register (1);
-	public static readonly Register EDX = new Register (2);
-	public static readonly Register EBX = new Register (3);
-	public static readonly Register ESP = new Register (4);
-	public static readonly Register EBP = new Register (5);
-	public static readonly Register ESI = new Register (6);
-	public static readonly Register EDI = new Register (7);
     
-	Register (byte idx) {
+	internal Register (byte idx) {
 		this.idx = idx;
 	}
 

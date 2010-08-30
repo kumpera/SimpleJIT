@@ -35,7 +35,7 @@ using NUnit.Framework.Extensions;
 namespace SimpleJit {
 
 [TestFixture]
-public class IndirectRegisterTest {
+public class IndirectRegisterTest : BuiltinRegisters {
 
 	void TestEncode (ModRM a, Register b, params byte[] expected) {
 		MemoryStream ms = new MemoryStream ();
@@ -49,15 +49,29 @@ public class IndirectRegisterTest {
 	[Test]
 	public void IndirectRegNoDisplacement ()
 	{
-		TestEncode (Register.EAX.Indirect, Register.EAX, 0x00);
-		TestEncode (Register.ECX.Indirect, Register.EAX, 0x01);
-		TestEncode (Register.EDX.Indirect, Register.EAX, 0x02);
-		TestEncode (Register.EBX.Indirect, Register.EAX, 0x03);
-		TestEncode (Register.ESP.Indirect, Register.EAX, 0x04, 0x24); //Must use SIB byte
-		TestEncode (Register.EBP.Indirect, Register.EAX, 0x45, 0x00); //Must be encoded as [EBP + 0]
-		TestEncode (Register.ESI.Indirect, Register.EAX, 0x06);
-		TestEncode (Register.EDI.Indirect, Register.EAX, 0x07);
+		TestEncode (EAX.Indirect, EAX, 0x00);
+		TestEncode (ECX.Indirect, EAX, 0x01);
+		TestEncode (EDX.Indirect, EAX, 0x02);
+		TestEncode (EBX.Indirect, EAX, 0x03);
+		TestEncode (ESP.Indirect, EAX, 0x04, 0x24); //Must use SIB byte
+		TestEncode (EBP.Indirect, EAX, 0x45, 0x00); //Must be encoded as [EBP + 0]
+		TestEncode (ESI.Indirect, EAX, 0x06);
+		TestEncode (EDI.Indirect, EAX, 0x07);
 	}
+
+	[Test]
+	public void IndirectRegSmallDisplacement ()
+	{
+		TestEncode (EAX.Indirect, EAX, 0x00);
+		TestEncode (ECX.Indirect, EAX, 0x01);
+		TestEncode (EDX.Indirect, EAX, 0x02);
+		TestEncode (EBX.Indirect, EAX, 0x03);
+		TestEncode (ESP.Indirect, EAX, 0x04, 0x24); //Must use SIB byte
+		TestEncode (EBP.Indirect, EAX, 0x45, 0x00); //Must be encoded as [EBP + 0]
+		TestEncode (ESI.Indirect, EAX, 0x06);
+		TestEncode (EDI.Indirect, EAX, 0x07);
+	}
+
 }
 
 }

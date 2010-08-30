@@ -68,10 +68,10 @@ public class IndirectRegister : ModRM {
 	void EncodeIndirect (Stream buffer, byte constant) {
 		if (indexReg != null)
 			throw new ArgumentException ("Cant encode scaled indirect");
-		if (baseReg == Register.ESP) {
+		if (baseReg == ESP) {
 			buffer.WriteByte (CombineModRM (MOD_R32_PTR, baseReg.Index, constant));
 			buffer.WriteByte (0x24);
-		} else if (baseReg == Register.EBP) {
+		} else if (baseReg == EBP) {
 			buffer.WriteByte (CombineModRM (MOD_R32_PTR_DISP8, baseReg.Index, constant));
 			buffer.WriteByte (0x0);
 		} else {
