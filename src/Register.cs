@@ -61,6 +61,10 @@ public class Register : ModRM {
 		return new IndirectRegister (reg, -displacement);
 	}
 
+	public static IndirectRegister operator +(Register baseReg, Register indexReg) {
+		return new IndirectRegister (baseReg, 0, indexReg, SCALE_1);
+	}
+
 }
 
 }

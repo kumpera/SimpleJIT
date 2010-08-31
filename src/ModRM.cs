@@ -66,7 +66,7 @@ public abstract class ModRM : BuiltinRegisters {
         return (byte) ((modRM << 6) | (reg << 3) | effAddr);
 	}
 
-	public static byte EncodeSib (byte base_reg, byte index, byte scale) {
+	public static byte CombineSib (byte base_reg, byte index, byte scale) {
         return (byte) ((scale << 6) | (index << 3) | base_reg);
 	}
 }

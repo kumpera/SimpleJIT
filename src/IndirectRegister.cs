@@ -41,6 +41,8 @@ public class IndirectRegister : ModRM {
 	public IndirectRegister (Register baseReg, int disp, Register indexReg, byte scale, bool force32) {
 		if (baseReg == null)
 			throw new ArgumentNullException ("BaseReg must be non null");
+		if (indexReg == ESP)
+		throw new ArgumentException ("IndexReg cannot be ESP");
 		this.baseReg = baseReg;
 		this.disp = disp;
 		this.indexReg = indexReg;
@@ -52,6 +54,9 @@ public class IndirectRegister : ModRM {
 	}
 
 	public IndirectRegister (Register baseReg, int disp) : this (baseReg, disp, null, SCALE_1, false) {
+	}
+
+	public IndirectRegister (Register baseReg, int disp, Register indexReg, byte scale) : this (baseReg, disp, indexReg, scale, false) {
 	}
 
 	public override string ToString () {
@@ -95,16 +100,25 @@ public class IndirectRegister : ModRM {
 	}
 
 	void EncodeIndirect (Stream buffer, byte constant) {
-		if (indexReg != null)
-			throw new ArgumentException ("Cant encode scaled indirect");
-		if (baseReg == ESP) {
-			buffer.WriteByte (CombineModRM (MOD_R32_PTR, baseReg.Index, constant));
-			buffer.WriteByte (0x24);
-		} else if (baseReg == EBP) {
-			buffer.WriteByte (CombineModRM (MOD_R32_PTR_DISP8, baseReg.Index, constant));
-			buffer.WriteByte (0x0);
+		if (indexReg != null) {
+			if (baseReg == EBP) {
+				buffer.WriteByte (CombineModRM (MOD_R32_PTR_DISP8, 0x04, constant));
+				buffer.WriteByte (CombineSib (baseReg.Index, indexReg.Index, SCALE_1));
+				buffer.WriteByte (0x0);
+			} else {
+				buffer.WriteByte (CombineModRM (MOD_R32_PTR, 0x04, constant));
+				buffer.WriteByte (CombineSib (baseReg.Index, indexReg.Index, SCALE_1));
+			}			
 		} else {
-			buffer.WriteByte (CombineModRM (MOD_R32_PTR, baseReg.Index, constant));
+			if (baseReg == ESP) {
+				buffer.WriteByte (CombineModRM (MOD_R32_PTR, baseReg.Index, constant));
+				buffer.WriteByte (0x24);
+			} else if (baseReg == EBP) {
+				buffer.WriteByte (CombineModRM (MOD_R32_PTR_DISP8, baseReg.Index, constant));
+				buffer.WriteByte (0x0);
+			} else {
+				buffer.WriteByte (CombineModRM (MOD_R32_PTR, baseReg.Index, constant));
+			}
 		}
 	}
 }

@@ -26,6 +26,7 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
+using System;
 using System.IO;
 
 using NUnit.Framework;
@@ -79,6 +80,22 @@ public class IndirectRegisterTest : BuiltinRegisters {
 		TestEncode (EAX + 1000, EAX, 0x80, 0xE8, 0x03, 0x00, 0x00);
 		TestEncode (ECX - 2000, EAX, 0x81, 0x30, 0xF8, 0xFF, 0xFF);
 		TestEncode (ESP + 5000, EAX, 0x84, 0x24, 0x88, 0x13, 0x00, 0x00); 
+	}
+
+	[Test]
+	public void IndirectRegReg () {
+		TestEncode (EAX + EAX, EAX, 0x04, 0x00);
+		TestEncode (EBP + EAX, EAX, 0x44, 0x05, 0x00);
+		TestEncode (ESP + EAX, EAX, 0x04, 0x04);
+		TestEncode (EBX + ECX, EDX, 0x14, 0x0B);
+
+		TestEncode (EAX + EBP, EAX, 0x04, 0x28);
+	}
+
+	[Test]
+	[ExpectedException (typeof (ArgumentException))]
+	public void BadIndirectRegReg () {
+		var x = EAX + ESP;
 	}
 }
 
