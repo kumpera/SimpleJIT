@@ -51,6 +51,9 @@ public class IndirectRegister : ModRM {
 	public IndirectRegister (Register baseReg) : this (baseReg, 0, null, SCALE_1, false) {
 	}
 
+	public IndirectRegister (Register baseReg, int disp) : this (baseReg, disp, null, SCALE_1, false) {
+	}
+
 	public override string ToString () {
 		string res = "[" + baseReg.ToString ();
 		if (indexReg != null)
@@ -60,9 +63,30 @@ public class IndirectRegister : ModRM {
 		return res + "]";
 	}
 
+    static bool IsImm8 (int imm) {
+		return imm >= -128 && imm <= 127;
+	}
+
 	public override void EncodeModRm (Stream buffer, byte constant) {
 		if (disp == 0)
 			EncodeIndirect (buffer, constant);
+		else if (IsImm8 (disp) && !force32)
+			EncodeDisp8 (buffer, constant);
+		else
+			EncodeDisp32 (buffer, constant);
+	}
+
+	void EncodeDisp8 (Stream buffer, byte constant) {
+		if (indexReg != null)
+			throw new ArgumentException ("Cant encode scaled indirect");
+		buffer.WriteByte (CombineModRM (MOD_R32_PTR_DISP8, baseReg.Index, constant));
+		if (baseReg == ESP)
+			buffer.WriteByte (0x24);
+		buffer.WriteByte ((byte)disp);
+	}
+
+	void EncodeDisp32 (Stream buffer, byte constant) {
+		throw new ArgumentException ("Cant encode disp32");
 	}
 
 	void EncodeIndirect (Stream buffer, byte constant) {

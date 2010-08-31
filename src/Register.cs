@@ -52,6 +52,15 @@ public class Register : ModRM {
 	public static IndirectRegister operator !(Register reg) {
 		return new IndirectRegister (reg);
 	}
+
+	public static IndirectRegister operator +(Register reg, int displacement) {
+		return new IndirectRegister (reg, displacement);
+	}
+
+	public static IndirectRegister operator -(Register reg, int displacement) {
+		return new IndirectRegister (reg, -displacement);
+	}
+
 }
 
 }
