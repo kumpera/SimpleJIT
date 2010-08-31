@@ -65,6 +65,14 @@ public class Register : ModRM {
 		return new IndirectRegister (baseReg, 0, indexReg, SCALE_1);
 	}
 
+	public static ScaledRegister operator *(Register reg, byte scale) {
+		return new ScaledRegister (reg, scale); 
+	}
+
+	public static IndirectRegister operator +(Register baseReg, ScaledRegister scale) {
+		return new IndirectRegister (baseReg, scale); 
+	}
+
 }
 
 }

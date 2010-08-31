@@ -31,6 +31,39 @@ using System.IO;
 
 namespace SimpleJit {
 
+public class ScaledRegister {
+	Register reg;
+	byte scale;
+
+	public ScaledRegister (Register reg, byte scale) {
+		this.reg = reg;
+		switch (scale) {
+		case 1:
+			this.scale = 0;
+			break;
+		case 2:
+			this.scale = 1;
+			break;
+		case 4:
+			this.scale = 2;
+			break;
+		case 8:
+			this.scale = 3;
+			break;
+		default:
+			throw new ArgumentException ("Invalid scale value");
+		}
+	}
+
+	public Register Register {
+		get { return reg; }
+	}
+
+	public byte Scale {
+		get { return scale; }
+	}
+}
+
 public class IndirectRegister : ModRM {
 	Register baseReg;
 	Register indexReg;
@@ -42,7 +75,7 @@ public class IndirectRegister : ModRM {
 		if (baseReg == null)
 			throw new ArgumentNullException ("BaseReg must be non null");
 		if (indexReg == ESP)
-		throw new ArgumentException ("IndexReg cannot be ESP");
+			throw new ArgumentException ("IndexReg cannot be ESP");
 		this.baseReg = baseReg;
 		this.disp = disp;
 		this.indexReg = indexReg;
@@ -57,6 +90,9 @@ public class IndirectRegister : ModRM {
 	}
 
 	public IndirectRegister (Register baseReg, int disp, Register indexReg, byte scale) : this (baseReg, disp, indexReg, scale, false) {
+	}
+
+	public IndirectRegister (Register baseReg, ScaledRegister scale) : this (baseReg, 0, scale.Register, scale.Scale, false) {
 	}
 
 	public override string ToString () {
@@ -109,11 +145,11 @@ public class IndirectRegister : ModRM {
 		if (indexReg != null) {
 			if (baseReg == EBP) {
 				buffer.WriteByte (CombineModRM (MOD_R32_PTR_DISP8, 0x04, constant));
-				buffer.WriteByte (CombineSib (baseReg.Index, indexReg.Index, SCALE_1));
+				buffer.WriteByte (CombineSib (baseReg.Index, indexReg.Index, scale));
 				buffer.WriteByte (0x0);
 			} else {
 				buffer.WriteByte (CombineModRM (MOD_R32_PTR, 0x04, constant));
-				buffer.WriteByte (CombineSib (baseReg.Index, indexReg.Index, SCALE_1));
+				buffer.WriteByte (CombineSib (baseReg.Index, indexReg.Index, scale));
 			}			
 		} else {
 			if (baseReg == ESP) {
@@ -131,6 +167,7 @@ public class IndirectRegister : ModRM {
 	public static IndirectRegister operator +(IndirectRegister reg, int displacement) {
 		return new IndirectRegister (reg.baseReg, reg.disp + displacement, reg.indexReg, reg.scale);
 	}
+
 
 }
 
