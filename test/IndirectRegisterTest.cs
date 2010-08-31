@@ -56,6 +56,8 @@ public class IndirectRegisterTest : BuiltinRegisters {
 		TestEncode (!EBP, EAX, 0x45, 0x00); //Must be encoded as [EBP + 0]
 		TestEncode (!ESI, EAX, 0x06);
 		TestEncode (!EDI, EAX, 0x07);
+
+		TestEncode (!ECX, ESI, 0x31);
 	}
 
 	[Test]
@@ -68,6 +70,8 @@ public class IndirectRegisterTest : BuiltinRegisters {
 		TestEncode (EBP - 10,  EAX, 0x45, 0xF6);
 		TestEncode (ESI - 128, EAX, 0x46, 0x80);
 		TestEncode (EDI - 66,  EAX, 0x47, 0xBE);
+
+		TestEncode (EDX + 1,   EBX, 0x5A, 0x01);
 	}
 
 }
