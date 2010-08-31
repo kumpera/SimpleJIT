@@ -97,6 +97,12 @@ public class IndirectRegisterTest : BuiltinRegisters {
 	public void BadIndirectRegReg () {
 		var x = EAX + ESP;
 	}
+
+	[Test]
+	public void IndirectRegRegDisp () {
+		TestEncode (EAX + EAX + 0x1A, EAX, 0x44, 0x00, 0x1A);
+		TestEncode (EAX + EAX + 0x2B1A, EAX, 0x84, 0x00, 0x1A, 0x2B, 0x00, 0x00);
+	}
 }
 
 }

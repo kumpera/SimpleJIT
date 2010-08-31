@@ -82,20 +82,26 @@ public class IndirectRegister : ModRM {
 	}
 
 	void EncodeDisp8 (Stream buffer, byte constant) {
-		if (indexReg != null)
-			throw new ArgumentException ("Cant encode scaled indirect");
-		buffer.WriteByte (CombineModRM (MOD_R32_PTR_DISP8, baseReg.Index, constant));
-		if (baseReg == ESP)
-			buffer.WriteByte (0x24);
+		if (indexReg != null) {
+			buffer.WriteByte (CombineModRM (MOD_R32_PTR_DISP8, 0x04, constant));
+			buffer.WriteByte (CombineSib (baseReg.Index, indexReg.Index, SCALE_1));
+		} else {
+			buffer.WriteByte (CombineModRM (MOD_R32_PTR_DISP8, baseReg.Index, constant));
+			if (baseReg == ESP)
+				buffer.WriteByte (0x24);
+		}
 		buffer.WriteByte ((byte)disp);
 	}
 
 	void EncodeDisp32 (Stream buffer, byte constant) {
-		if (indexReg != null)
-			throw new ArgumentException ("Cant encode scaled indirect");
-		buffer.WriteByte (CombineModRM (MOD_R32_PTR_DISP32, baseReg.Index, constant));
-		if (baseReg == ESP)
-			buffer.WriteByte (0x24);
+		if (indexReg != null) {
+			buffer.WriteByte (CombineModRM (MOD_R32_PTR_DISP32, 0x04, constant));
+			buffer.WriteByte (CombineSib (baseReg.Index, indexReg.Index, SCALE_1));
+		} else {
+			buffer.WriteByte (CombineModRM (MOD_R32_PTR_DISP32, baseReg.Index, constant));
+			if (baseReg == ESP)
+				buffer.WriteByte (0x24);
+		}
 		buffer.WriteInt (disp);
 	}
 
@@ -121,6 +127,11 @@ public class IndirectRegister : ModRM {
 			}
 		}
 	}
+
+	public static IndirectRegister operator +(IndirectRegister reg, int displacement) {
+		return new IndirectRegister (reg.baseReg, reg.disp + displacement, reg.indexReg, reg.scale);
+	}
+
 }
 
 }
