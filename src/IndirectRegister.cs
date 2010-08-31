@@ -86,7 +86,12 @@ public class IndirectRegister : ModRM {
 	}
 
 	void EncodeDisp32 (Stream buffer, byte constant) {
-		throw new ArgumentException ("Cant encode disp32");
+		if (indexReg != null)
+			throw new ArgumentException ("Cant encode scaled indirect");
+		buffer.WriteByte (CombineModRM (MOD_R32_PTR_DISP32, baseReg.Index, constant));
+		if (baseReg == ESP)
+			buffer.WriteByte (0x24);
+		buffer.WriteInt (disp);
 	}
 
 	void EncodeIndirect (Stream buffer, byte constant) {

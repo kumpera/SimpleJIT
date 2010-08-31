@@ -74,6 +74,12 @@ public class IndirectRegisterTest : BuiltinRegisters {
 		TestEncode (EDX + 1,   EBX, 0x5A, 0x01);
 	}
 
+	[Test]
+	public void IndirectRegLargeDisplacement () {
+		TestEncode (EAX + 1000, EAX, 0x80, 0xE8, 0x03, 0x00, 0x00);
+		TestEncode (ECX - 2000, EAX, 0x81, 0x30, 0xF8, 0xFF, 0xFF);
+		TestEncode (ESP + 5000, EAX, 0x84, 0x24, 0x88, 0x13, 0x00, 0x00); 
+	}
 }
 
 }
