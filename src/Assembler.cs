@@ -71,6 +71,14 @@ public class Assembler {
 		}
 		buffer.WriteInt (imm32);
 	}
+
+	public void Leave () {
+		buffer.WriteByte (0xC9);
+	}
+
+	public void Ret () {
+		buffer.WriteByte (0xC3);
+	}
 }
 
 }

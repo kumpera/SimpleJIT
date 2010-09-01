@@ -96,8 +96,20 @@ public class AssemblerTest : BuiltinRegisters {
 		asm.Mov (!EAX, 0x33);
 		AssertEncoding (0xC7, 0x00, 0x33, 0x00, 0x00, 0x00);
 		Reset ();
-
 	}
+
+	[Test]
+	public void Leave () {
+		asm.Leave ();
+		AssertEncoding (0xC9);
+	}
+
+	[Test]
+	public void Ret () {
+		asm.Ret ();
+		AssertEncoding (0xC3);
+	}
+
 }
 
 }
