@@ -120,7 +120,7 @@ public class IndirectRegister : ModRM {
 	void EncodeDisp8 (Stream buffer, byte constant) {
 		if (indexReg != null) {
 			buffer.WriteByte (CombineModRM (MOD_R32_PTR_DISP8, 0x04, constant));
-			buffer.WriteByte (CombineSib (baseReg.Index, indexReg.Index, SCALE_1));
+			buffer.WriteByte (CombineSib (baseReg.Index, indexReg.Index, scale));
 		} else {
 			buffer.WriteByte (CombineModRM (MOD_R32_PTR_DISP8, baseReg.Index, constant));
 			if (baseReg == ESP)
@@ -132,7 +132,7 @@ public class IndirectRegister : ModRM {
 	void EncodeDisp32 (Stream buffer, byte constant) {
 		if (indexReg != null) {
 			buffer.WriteByte (CombineModRM (MOD_R32_PTR_DISP32, 0x04, constant));
-			buffer.WriteByte (CombineSib (baseReg.Index, indexReg.Index, SCALE_1));
+			buffer.WriteByte (CombineSib (baseReg.Index, indexReg.Index, scale));
 		} else {
 			buffer.WriteByte (CombineModRM (MOD_R32_PTR_DISP32, baseReg.Index, constant));
 			if (baseReg == ESP)

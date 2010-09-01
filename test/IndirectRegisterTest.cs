@@ -112,6 +112,14 @@ public class IndirectRegisterTest : BuiltinRegisters {
 	}
 
 	[Test]
+	public void IndirectRegRegDispWithScale () {
+		TestEncode (EAX + EAX * 8 + 0x10, EAX, 0x44, 0xC0, 0x10);
+		TestEncode (EBP + EDX * 4 + 0x20, EDX, 0x54, 0x95, 0x20);
+		TestEncode (EAX + EAX * 8 + 0x1010, EAX, 0x84, 0xC0, 0x10, 0x10, 0x00, 0x00);
+		TestEncode (EBP + EDX * 4 + 0x2020, EDX, 0x94, 0x95, 0x20, 0x20, 0x00, 0x00);
+	}
+
+	[Test]
 	[ExpectedException (typeof (ArgumentException))]
 	public void BadIndirectRegRegWithScale () {
 		var x = EAX * 5;
