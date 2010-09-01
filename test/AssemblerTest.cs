@@ -87,6 +87,17 @@ public class AssemblerTest : BuiltinRegisters {
 		Reset ();
 	}
 
+	[Test]
+	public void MovImm32 () {
+		asm.Mov (ECX, 0x33);
+		AssertEncoding (0xB9, 0x33, 0x00, 0x00, 0x00);
+		Reset ();
+
+		asm.Mov (!EAX, 0x33);
+		AssertEncoding (0xC7, 0x00, 0x33, 0x00, 0x00, 0x00);
+		Reset ();
+
+	}
 }
 
 }

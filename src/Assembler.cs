@@ -60,6 +60,17 @@ public class Assembler {
 		buffer.WriteByte (0x89);
 		dest.EncodeModRm (buffer, source);
 	}
+
+	/* mov r/m32, imm32 */ 
+	public void Mov (ModRM dest, int imm32) {
+		if (dest is Register) {
+			buffer.WriteByte ((byte)(0xB8 + ((Register) dest).Index));
+		} else {
+			buffer.WriteByte (0xC7);
+			dest.EncodeModRm (buffer, (byte) 0x0);
+		}
+		buffer.WriteInt (imm32);
+	}
 }
 
 }
