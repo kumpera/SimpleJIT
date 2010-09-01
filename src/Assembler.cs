@@ -37,14 +37,29 @@ public class Assembler {
 		this.buffer = buffer;
 	}
 
-    public void Push (ModRM reg) {
-        if (reg is Register) {
-            buffer.WriteByte ((byte)(0x50 + ((Register) reg).Index));
-        }else {
-            buffer.WriteByte (0xFF);
-            reg.EncodeModRm (buffer, (byte) 0x6);
-        }
-    }
+	/* push r/m32*/
+	public void Push (ModRM reg) {
+		if (reg is Register) {
+			buffer.WriteByte ((byte)(0x50 + ((Register) reg).Index));
+		} else {
+			buffer.WriteByte (0xFF);
+			reg.EncodeModRm (buffer, (byte) 0x6);
+		}
+	}
+
+	/* mov r32, r/m32 */
+	public void Mov (Register dest, ModRM source) {
+		buffer.WriteByte (0x8B);
+		source.EncodeModRm (buffer, dest);
+	}
+
+	/* mov r/m32, r32
+	   Note: for r32, r32 we favor the 0x8B encoding, so it's not possible to do it with this opcode.
+	*/
+	public void Mov (IndirectRegister dest, Register source) {
+		buffer.WriteByte (0x89);
+		dest.EncodeModRm (buffer, source);
+	}
 }
 
 }
