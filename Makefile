@@ -2,10 +2,11 @@ FILES = src/Register.cs \
 		src/IndirectRegister.cs \
 		src/ModRM.cs \
 		src/StreamExtensions.cs	\
+		src/Assembler.cs \
 
 TEST_FILES = test/RegisterTest.cs \
 			 test/IndirectRegisterTest.cs \
-
+			 test/AssemblerTest.cs \
 
 all: SimpleJit.dll SimpleJit_test.dll
 
