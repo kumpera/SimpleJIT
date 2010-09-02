@@ -28,8 +28,9 @@
 
 using System;
 using System.IO;
+using SimpleJit.Extensions;
 
-namespace SimpleJit {
+namespace SimpleJit.X86 {
 
 public class ScaledRegister {
 	Register reg;

@@ -28,7 +28,7 @@
 
 using System.IO;
 
-namespace SimpleJit {
+namespace SimpleJit.X86 {
 
 /*This is a hack to make code doing heavy usage register bearable.*/
 public class BuiltinRegisters {

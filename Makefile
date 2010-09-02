@@ -1,12 +1,12 @@
-FILES = src/Register.cs \
-		src/IndirectRegister.cs \
-		src/ModRM.cs \
-		src/StreamExtensions.cs	\
-		src/Assembler.cs \
+FILES = src/SimpleJit.X86/Assembler.cs \
+		src/SimpleJit.X86/Register.cs \
+		src/SimpleJit.X86/IndirectRegister.cs \
+		src/SimpleJit.X86/ModRM.cs \
+		src/SimpleJit.Extensions/StreamExtensions.cs	\
 
-TEST_FILES = test/RegisterTest.cs \
-			 test/IndirectRegisterTest.cs \
-			 test/AssemblerTest.cs \
+TEST_FILES = test/SimpleJit.X86/RegisterTest.cs \
+			 test/SimpleJit.X86/IndirectRegisterTest.cs \
+			 test/SimpleJit.X86/AssemblerTest.cs \
 
 SAMPLES = bin/simple-fun.exe
 

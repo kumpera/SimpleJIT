@@ -1,5 +1,5 @@
 //
-// IndirectRegister.cs
+// Assembler.cs
 //
 // Author:
 //   Rodrigo Kumpera  <kumpera@gmail.com>
@@ -27,15 +27,58 @@
 //
 
 using System.IO;
+using SimpleJit.Extensions;
 
-namespace SimpleJit {
+namespace SimpleJit.X86 {
 
-public static class StreamExtensions {
-	public static void WriteInt (this Stream stream, int val) {
-		stream.WriteByte ((byte)(val & 0xFF));
-		stream.WriteByte ((byte)((val >> 8) & 0xFF));
-		stream.WriteByte ((byte)((val >> 16) & 0xFF));
-		stream.WriteByte ((byte)((val >> 24) & 0xFF));
+public class Assembler {
+	Stream buffer;
+
+	public Assembler (Stream buffer) {
+		this.buffer = buffer;
+	}
+
+	/* push r/m32*/
+	public void Push (ModRM reg) {
+		if (reg is Register) {
+			buffer.WriteByte ((byte)(0x50 + ((Register) reg).Index));
+		} else {
+			buffer.WriteByte (0xFF);
+			reg.EncodeModRm (buffer, (byte) 0x6);
+		}
+	}
+
+	/* mov r32, r/m32 */
+	public void Mov (Register dest, ModRM source) {
+		buffer.WriteByte (0x8B);
+		source.EncodeModRm (buffer, dest);
+	}
+
+	/* mov r/m32, r32
+	   Note: for r32, r32 we favor the 0x8B encoding, so it's not possible to do it with this opcode.
+	*/
+	public void Mov (IndirectRegister dest, Register source) {
+		buffer.WriteByte (0x89);
+		dest.EncodeModRm (buffer, source);
+	}
+
+	/* mov r/m32, imm32 */ 
+	public void Mov (ModRM dest, int imm32) {
+		if (dest is Register) {
+			buffer.WriteByte ((byte)(0xB8 + ((Register) dest).Index));
+		} else {
+			buffer.WriteByte (0xC7);
+			dest.EncodeModRm (buffer, (byte) 0x0);
+		}
+		buffer.WriteInt (imm32);
+	}
+
+	public void Leave () {
+		buffer.WriteByte (0xC9);
+	}
+
+	public void Ret () {
+		buffer.WriteByte (0xC3);
 	}
 }
 

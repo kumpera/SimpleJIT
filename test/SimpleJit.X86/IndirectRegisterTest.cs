@@ -33,7 +33,7 @@ using NUnit.Framework;
 using NUnit.Framework.Extensions;
 
 
-namespace SimpleJit {
+namespace SimpleJit.X86 {
 
 [TestFixture]
 public class IndirectRegisterTest : BuiltinRegisters {

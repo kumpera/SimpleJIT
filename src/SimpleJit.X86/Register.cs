@@ -28,7 +28,7 @@
 
 using System.IO;
 
-namespace SimpleJit {
+namespace SimpleJit.X86 {
 
 public class Register : ModRM {
 	byte idx;
