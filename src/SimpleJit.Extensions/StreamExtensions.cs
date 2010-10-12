@@ -37,6 +37,24 @@ public static class StreamExtensions {
 		stream.WriteByte ((byte)((val >> 16) & 0xFF));
 		stream.WriteByte ((byte)((val >> 24) & 0xFF));
 	}
+
+	public static short ReadShort (this Stream stream) {
+		int low = stream.ReadByte ();
+		return (short) ((low << 8) | stream.ReadByte ());
+	}
+
+	public static int ReadInt (this Stream stream) {
+		int low = stream.ReadByte ();
+		int mid0 = stream.ReadByte ();
+		int mid1 = stream.ReadByte ();
+		return (low << 8) | (mid0 << 16) | (mid1 << 24) | stream.ReadByte ();
+	}
+
+	public static void Skip (this Stream stream, int count) {
+		while (count-- > 0)
+			stream.ReadByte ();
+	}
+
 }
 
 }
