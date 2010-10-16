@@ -5,14 +5,18 @@ FILES = src/SimpleJit.X86/Assembler.cs \
 		src/SimpleJit.Extensions/StreamExtensions.cs	\
 		src/SimpleJit.Cil/Opcode.cs \
 		src/SimpleJit.Cil/OpcodesTableGenerated.cs \
+		src/SimpleJit.Cil/Image.cs	\
+		src/External/DataConverter.cs
 
 TEST_FILES = test/SimpleJit.X86/RegisterTest.cs \
 			 test/SimpleJit.X86/IndirectRegisterTest.cs \
 			 test/SimpleJit.X86/AssemblerTest.cs \
 
+COMPILER_FILES = src/SimpleJit.Compiler/Driver.cs	\
+
 SAMPLES = bin/simple-fun.exe
 
-all: bin bin/SimpleJit.dll bin/SimpleJit_test.dll
+all: bin bin/SimpleJit.dll bin/SimpleJit_test.dll bin/compiler.exe
 
 samples : $(SAMPLES)
 bin:
@@ -23,6 +27,9 @@ bin/SimpleJit.dll: $(FILES)
 
 bin/SimpleJit_test.dll: bin/SimpleJit.dll $(TEST_FILES)
 	gmcs -debug -target:library -out:bin/SimpleJit_test.dll -r:bin/SimpleJit.dll -r:nunit.framework.dll -r:nunit.framework.extensions.dll  -r:nunit.core.dll $(TEST_FILES)  
+
+bin/compiler.exe: bin/SimpleJit.dll $(COMPILER_FILES)
+	gmcs -debug /unsafe -out:bin/compiler.exe /r:bin/SimpleJit.dll $(COMPILER_FILES)
 
 src/SimpleJit.Cil/OpcodesTableGenerated.cs: src/SimpleJit.Cil.Generators/opcode-emit.rb src/SimpleJit.Cil.Generators/opcodes.xml
 	ruby src/SimpleJit.Cil.Generators/opcode-emit.rb  > src/SimpleJit.Cil/OpcodesTableGenerated.cs src/SimpleJit.Cil.Generators/opcodes.xml
