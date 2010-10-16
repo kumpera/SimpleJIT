@@ -1,3 +1,30 @@
+//
+// Image.cs
+//
+// Author:
+//   Rodrigo Kumpera  <kumpera@gmail.com>
+//
+//
+//
+// Permission is hereby granted, free of charge, to any person obtaining
+// a copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to
+// permit persons to whom the Software is furnished to do so, subject to
+// the following conditions:
+// 
+// The above copyright notice and this permission notice shall be
+// included in all copies or substantial portions of the Software.
+// 
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+// EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+// NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+// LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+// OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+// WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+//
 using System;
 using SimpleJit.Extensions;
 using Mono;
@@ -14,6 +41,15 @@ struct PeSection {
 	}
 }
 
+struct StreamHeader {
+	internal int offset, size;
+	internal string name;
+
+	public override string ToString () {
+		return string.Format ("['{0}': offset {1:X} size {2:X}]", name, offset, size);
+	}
+}
+
 struct PePointer {
 	internal int rva, size;
 }
@@ -25,6 +61,8 @@ public class Image {
 
 	byte[] data;
 	PeSection[] sections;
+	StreamHeader[] streams;
+
 	int entrypoint;
 
 	public Image (byte[] data) {
@@ -56,7 +94,6 @@ public class Image {
 	}
 
 	PePointer ReadPePointer (int offset) {
-		Console.WriteLine ("offset {0}", offset);
 		var conv = DataConverter.LittleEndian;
 		return new PePointer () { rva = conv.GetInt32 (data, offset), size = conv.GetInt32 (data, offset + 4) };
 	}
@@ -96,6 +133,7 @@ public class Image {
 			sections [i].raw_size = conv.GetInt32 (data, offset + 16);
 			sections [i].offset = conv.GetInt32 (data, offset + 20);
 			offset += 40;
+
 			Console.WriteLine ("section[{0}] {1}", i, sections[i].ToString ());
 		}
 
@@ -106,9 +144,28 @@ public class Image {
 		//TODO runtime flags, strong names and VTF
 
 		/*metadata root*/
-		offset = RvaToOffset (metadata.rva);		
-	}
+		var metadata_offset = offset = RvaToOffset (metadata.rva);
+		if (conv.GetInt32 (data, offset) != 0x424A5342)
+			throw new Exception ("Invalid metadata root");
+		var version_len = conv.GetInt32 (data, offset + 12).RoundUp (4);
+		var version = ReadCString (offset + 16, version_len);
+		Console.WriteLine ("runtime version {0}", version);
 
+		/*metadata root - flags */
+		offset += 16 + version_len;
+		var stream_count = conv.GetInt16 (data, offset + 2);
+		offset += 4;
+
+		/*Metadata streams*/
+		this.streams = new StreamHeader [stream_count];
+		for (int i = 0; i < stream_count; ++i) {
+			streams [i].offset = metadata_offset + conv.GetInt32 (data, offset);
+			streams [i].size = conv.GetInt32 (data, offset + 4);
+			streams [i].name = ReadCString (offset + 8, 32);
+			offset += 8 + (streams [i].name + 1).Length.RoundUp (4);
+			Console.WriteLine ("stream {0}", streams [i].ToString ());
+		}
+	}
 
 }
 

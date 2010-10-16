@@ -2,6 +2,7 @@ FILES = src/SimpleJit.X86/Assembler.cs \
 		src/SimpleJit.X86/Register.cs \
 		src/SimpleJit.X86/IndirectRegister.cs \
 		src/SimpleJit.X86/ModRM.cs \
+		src/SimpleJit.Extensions/NumericExtensions.cs	\
 		src/SimpleJit.Extensions/StreamExtensions.cs	\
 		src/SimpleJit.Cil/Opcode.cs \
 		src/SimpleJit.Cil/OpcodesTableGenerated.cs \
