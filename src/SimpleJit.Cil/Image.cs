@@ -226,7 +226,8 @@ public class Image {
 				tables [i].offset = offset;
 				tables [i].size = TableDecoder.DecodeRowSize (this, i, heap_sizes);
 				offset += tables [i].rows * tables [i].size;
-				Console.WriteLine ("table {0} has {1} rows size {2}", (Table)i, tables [i].rows,  tables [i].size);
+				Console.WriteLine ("table {0} has {1} rows size {2} offset 0x{3:x}", 
+					(Table)i, tables [i].rows,  tables [i].size, tables [i].offset);
 			}
 		}
 	}
