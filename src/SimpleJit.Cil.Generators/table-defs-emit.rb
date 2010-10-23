@@ -36,6 +36,7 @@ class Table
   def get_type t
     return "uint" if t == :blob || t == :string || t == :guid
     return t.type_name if t.class == CodedToken
+    return "uint" if t.class == Index
     t.to_s
   end
 
@@ -43,8 +44,7 @@ class Table
     return 2 if t == :ushort
     return 4 if t == :uint
     return 0 if t == :blob || t == :string || t == :guid
-    return 0 if t.class == CodedToken
-
+    return 0 if t.class == CodedToken || t.class == Index
     raise "don't know: " + t.to_s 
   end
 
@@ -64,14 +64,26 @@ class Table
       puts "\tinternal #{ftype} #{f[0]};"
     }
     puts ""
-    puts "\tpublic static int RowSize (byte head_sizes) {"
+    puts "\tpublic static int RowSize (Image image, byte head_sizes) {"
     puts "\t\tint size = #{base_size};"
     puts "\t\tsize += Image.HeapSize (head_sizes, Image.BLOB_BIT, #{blob});" if blob > 0
     puts "\t\tsize += Image.HeapSize (head_sizes, Image.STRING_BIT, #{string});" if string > 0
     puts "\t\tsize += Image.HeapSize (head_sizes, Image.GUID_BIT, #{guid});" if guid > 0
+    @fields.each { |f| f[1].dump_size if f[1].class == CodedToken || f[1].class == Index }
+
     puts "\t\treturn size;"
     puts "\t}"
     puts "}\n\n"
+  end
+end
+
+class Index
+  def initialize table
+    @table = table
+  end
+
+  def dump_size
+    puts "\t\tsize += image.TableIndexSize (Table.#{@table});"
   end
 end
 
@@ -114,6 +126,10 @@ class CodedToken
     b
   end
 
+  def dump_size
+    puts "\t\tsize += #{token_name}.DeriveSize (image);"
+  end
+
   def dump
     puts """
 public struct #{token_name} {
@@ -124,7 +140,7 @@ public struct #{token_name} {
     @tables.each { |t| puts "    Table.#{t}," }
 
     puts """  };
-  public int DeriveSize (Image img) {
+  public static int DeriveSize (Image img) {
     return img.CodedIndexSize (MAX_TABLE_SIZE, ENCODED_TABLES);
   }
 }
@@ -150,7 +166,7 @@ def coded token
 end
 
 def index token
-  :uint #FIXME
+  Index.new token
 end
 
 coded_token (:TypeDefOrRef) { |tk|
@@ -174,7 +190,7 @@ coded_token (:HasCustomAttribute) { |tk|
   tk << :InterfaceImpl
   tk << :MemberRef
   tk << :Module
-  tk << :Permission
+  tk << :DeclSecurity
   tk << :Property
   tk << :Event
   tk << :StandAloneSig
@@ -304,6 +320,12 @@ table (:Param) { |tb|
   tb.name = :string
 }
 
+table (:InterfaceImpl) { |tb|
+  tb.id = 0x09
+  tb.classDef = index :TypeDef
+  tb.interfaceImpl = coded :TypeDefOrRef
+}
+
 table (:MemberRef) { |tb|
   tb.id = 0x0A
   tb.parent = coded :MemberRefParent
@@ -318,9 +340,40 @@ table (:CustomAttribute) { |tb|
   tb.value = :blob
 }
 
+table (:DeclSecurity) { |tb|
+  tb.id = 0x0E
+  tb.action = :ushort
+  tb.parent = coded :HasDeclSecurity
+  tb.permissionSet = :blob
+}
+
+table (:StandAloneSig) { |tb|
+  tb.id = 0x11
+  tb.signature = :blob
+}
+
+table (:Event) { |tb|
+  tb.id = 0x14
+  tb.flags = :ushort #enum:EventAttributes
+  tb.name = :string
+  tb.eventType = coded :TypeDefOrRef
+}
+
+table (:Property) { |tb|
+  tb.id = 0x17
+  tb.flags = :ushort #enum:PropertyAttributes
+  tb.name = :string
+  tb.signature = :blob
+}
+
 table (:ModuleRef) { |tb|
   tb.id = 0x1A
   tb.name = :string
+}
+
+table (:TypeSpec) { |tb|
+  tb.id = 0x1B
+  tb.signature = :blob
 }
 
 table (:Assembly) { |tb|
@@ -349,6 +402,38 @@ table (:AssemblyRef) { |tb|
   tb.hashValue = :blob
 }
 
+table (:File) { |tb|
+  tb.id = 0x26
+  tb.flags = :uint #enum:FileAttributes
+  tb.name = :string
+  tb.hashValue = :blob
+}
+
+table (:ExportedType) { |tb|
+  tb.id = 0x27
+  tb.flags = :uint #enum:TypeAttributes
+  tb.typeDefId = :uint
+  tb.typeName = :string
+  tb.typeNamespace = :string
+  tb.implementation = coded :Implementation
+}
+
+table (:ManifestResource) { |tb|
+  tb.id = 0x28
+  tb.offset = :uint
+  tb.flags = :uint #enum:ManifestResourceAttributes
+  tb.name = :string
+  tb.implementation = coded :Implementation
+}
+
+table (:GenericParam) { |tb|
+  tb.id = 0x2A
+  tb.number = :ushort
+  tb.flags = :ushort #enum:GenericParamAttributes
+  tb.owner = coded :TypeOrMethodDef
+  tb.name = :string
+}
+
 puts "using System;\n\nnamespace BasicJit.CIL {\n\n"
 CodedToken.dump_all
 Table.tables.each {|tb| tb.dump }
@@ -368,14 +453,14 @@ puts """  MaxTableId = #{Table.id_max},
 puts """
 public static class TableDecoder {
 
-  public static int DecodeRowSize (int table, byte heap_sizes) {
+  public static int DecodeRowSize (Image image, int table, byte heap_sizes) {
     switch (table) {
 """
 Table.tables.each {|tb|
-  puts "    case #{tb.id}: return #{tb.table_name}Row.RowSize (heap_sizes);"
+  puts "    case #{tb.id}: return #{tb.table_name}Row.RowSize (image, heap_sizes);"
 }
 
-puts """    default: throw new Exception (\"Can't decode table \" + table);
+puts """    default: throw new Exception (\"Can't decode table 0x\" + table.ToString (\"X\"));
     }
   }
 }
