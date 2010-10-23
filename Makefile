@@ -8,6 +8,8 @@ FILES = src/SimpleJit.X86/Assembler.cs \
 		src/SimpleJit.Cil/MetadataTableGenerated.cs	\
 		src/SimpleJit.Cil/OpcodesTableGenerated.cs \
 		src/SimpleJit.Cil/Image.cs	\
+		src/SimpleJit.Metadata/MethodData.cs	\
+		src/SimpleJit.Compiler/Compiler.cs	\
 		src/External/DataConverter.cs
 
 TEST_FILES = test/SimpleJit.X86/RegisterTest.cs \
