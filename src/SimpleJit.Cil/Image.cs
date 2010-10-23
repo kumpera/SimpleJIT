@@ -54,20 +54,32 @@ struct PePointer {
 	internal int rva, size;
 }
 
+struct TableData {
+	internal int offset;
+	internal int rows;
+	internal int size;	
+}
+
 public class Image {
 	const int PE_OFFSET = 0x3C;
 	const int OPTIONAL_HEADER_SIZE = 224;
 	const int CLI_HEADER_SIZE = 72;
+	const int MAX_TABLE_SIZE = 1 << 16;
+	public const int STRING_BIT = 1;
+	public const int GUID_BIT = 2;
+	public const int BLOB_BIT = 4;
 
 	byte[] data;
 	PeSection[] sections;
 	StreamHeader[] streams;
+	TableData[] tables;
 
 	int entrypoint;
 
 	public Image (byte[] data) {
 		this.data = data;
-		ReadData ();
+		ReadHeaders ();
+		ReadTables ();
 	}
 
 	String ReadCString (int offset, int maxSize) {
@@ -93,12 +105,20 @@ public class Image {
 		throw new Exception ("rva not mapped");
 	}
 
+	int GetStreamOffset (string stream) {
+		for (int i = 0; i < streams.Length; ++i) {
+			if (streams [i].name == stream)
+				return streams [i].offset;
+		}
+		throw new Exception ("Could not find stream " + stream);
+	}
+
 	PePointer ReadPePointer (int offset) {
 		var conv = DataConverter.LittleEndian;
 		return new PePointer () { rva = conv.GetInt32 (data, offset), size = conv.GetInt32 (data, offset + 4) };
 	}
 
-	void ReadData () {
+	void ReadHeaders () {
 		var conv = DataConverter.LittleEndian;
 		int offset = conv.GetInt32 (data, PE_OFFSET);
 
@@ -144,7 +164,9 @@ public class Image {
 		//TODO runtime flags, strong names and VTF
 
 		/*metadata root*/
-		var metadata_offset = offset = RvaToOffset (metadata.rva);
+		var metadata_offset = RvaToOffset ((int)metadata.rva);
+		offset = (int) metadata_offset;
+
 		if (conv.GetInt32 (data, offset) != 0x424A5342)
 			throw new Exception ("Invalid metadata root");
 		var version_len = conv.GetInt32 (data, offset + 12).RoundUp (4);
@@ -167,6 +189,47 @@ public class Image {
 		}
 	}
 
+	internal static int HeapSize (byte heap_sizes, int bit, int count) {
+		return count * (((heap_sizes & bit) == bit) ? 4 : 2);
+	}
+
+	internal int CodedIndexSize (int max_table_size, Table[] encoded_tables) {
+		foreach (Table t in encoded_tables)
+			if (t != Table.NotUsed && tables [(int)t].rows >= max_table_size)
+				return 4;
+		return 2;
+	}
+
+	internal int TableIndexSize (Table table) {
+		if (tables [(int)table].rows >= MAX_TABLE_SIZE)
+			return 4;
+		return 2;
+	}
+	
+	void ReadTables () {
+		var conv = DataConverter.LittleEndian;
+		int offset = GetStreamOffset ("#~");
+
+		var heap_sizes = data [offset + 6];
+		var valid_tables = conv.GetInt64 (data, offset + 8);
+		tables = new TableData [(int)Table.MaxTableId + 1];
+		offset += 24;
+		for (int i = 0; i <= (int)Table.MaxTableId; ++i) {
+			if ((valid_tables & (1L << i)) != 0) {
+				tables [i].rows = conv.GetInt32 (data, offset);
+				offset += 4;
+			}
+		}
+
+		for (int i = 0; i <= (int)Table.MaxTableId; ++i) {
+			if (tables [i].rows > 0) {
+				tables [i].offset = offset;
+				tables [i].size = TableDecoder.DecodeRowSize (this, i, heap_sizes);
+				offset += tables [i].rows * tables [i].size;
+				Console.WriteLine ("table {0} has {1} rows size {2}", (Table)i, tables [i].rows,  tables [i].size);
+			}
+		}
+	}
 }
 
 }

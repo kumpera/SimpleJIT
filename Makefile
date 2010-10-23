@@ -5,6 +5,7 @@ FILES = src/SimpleJit.X86/Assembler.cs \
 		src/SimpleJit.Extensions/NumericExtensions.cs	\
 		src/SimpleJit.Extensions/StreamExtensions.cs	\
 		src/SimpleJit.Cil/Opcode.cs \
+		src/SimpleJit.Cil/MetadataTableGenerated.cs	\
 		src/SimpleJit.Cil/OpcodesTableGenerated.cs \
 		src/SimpleJit.Cil/Image.cs	\
 		src/External/DataConverter.cs
@@ -34,7 +35,9 @@ bin/compiler.exe: bin/SimpleJit.dll $(COMPILER_FILES)
 
 src/SimpleJit.Cil/OpcodesTableGenerated.cs: src/SimpleJit.Cil.Generators/opcode-emit.rb src/SimpleJit.Cil.Generators/opcodes.xml
 	ruby src/SimpleJit.Cil.Generators/opcode-emit.rb  > src/SimpleJit.Cil/OpcodesTableGenerated.cs src/SimpleJit.Cil.Generators/opcodes.xml
-	
+
+src/SimpleJit.Cil/MetadataTableGenerated.cs: src/SimpleJit.Cil.Generators/table-defs-emit.rb
+	ruby src/SimpleJit.Cil.Generators/table-defs-emit.rb  > src/SimpleJit.Cil/MetadataTableGenerated.cs
 
 compile: bin/SimpleJit.dll bin/SimpleJit_test.dll
 	@echo done
