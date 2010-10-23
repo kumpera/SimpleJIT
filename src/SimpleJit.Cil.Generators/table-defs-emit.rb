@@ -13,14 +13,15 @@ class Table
   attr_accessor :id
 
   @@tables = []
-  @@id_max = 0
 
   def self.tables
     @@tables
   end
 
   def self.id_max
-    @@id_max
+    id_max = 0
+    @@tables.each { |t| id_max = t.id if t.id > id_max }
+    id_max
   end
 
   def add_field name, type
@@ -48,7 +49,6 @@ class Table
   end
 
   def dump
-    @@id_max = id if id > @@id_max
     puts "public struct #{@table_name}Row {"
     puts "\tconst int ID=#{id};"
     blob = 0
@@ -85,6 +85,10 @@ class CodedToken
     @@tokens [token.token_name] = token
   end
 
+  def self.dump_all
+    @@tokens.each_value {|tk| tk.dump }
+  end
+
   def initialize name
     @token_name = name
     @tables = []
@@ -98,6 +102,33 @@ class CodedToken
 
   def << (table)
     @tables << table
+  end
+
+  def bits
+    c = 1
+    b = 0;
+    while c < @tables.length :
+      b += 1
+      c = c * 2
+    end
+    b
+  end
+
+  def dump
+    puts """
+public struct #{token_name} {
+  uint token;
+  public const int TAG_BITS = #{bits};
+  public const int MAX_TABLE_SIZE = 1 << (16 - TAG_BITS);
+  static readonly Table[] ENCODED_TABLES = new Table[] {"""
+    @tables.each { |t| puts "    Table.#{t}," }
+
+    puts """  };
+  public int DeriveSize (Image img) {
+    return img.CodedIndexSize (MAX_TABLE_SIZE, ENCODED_TABLES);
+  }
+}
+"""
   end
 end
 
@@ -203,10 +234,11 @@ coded_token (:Implementation) { |tk|
 }
 
 coded_token (:CustomAttributeType) { |tk|
-  tk << :Unused
-  tk << :Unused
+  tk << :NotUsed
+  tk << :NotUsed
   tk << :MethodDef
   tk << :MemberRef
+  tk << :NotUsed
 }
 
 coded_token (:ResolutionScope) { |tk|
@@ -247,6 +279,14 @@ table (:TypeDef) { |tb|
   tb.methodList = index :MethodDef
 }
 
+table (:Field) { |tb|
+  tb.id = 0x04
+  tb.flags = :ushort #enum:FieldAttributes
+  tb.name = :string
+  tb.signatre = :blob
+  tb.paramList = index :Param
+}
+
 table (:MethodDef) { |tb|
   tb.id = 0x06
   tb.rva = :uint
@@ -255,6 +295,13 @@ table (:MethodDef) { |tb|
   tb.name = :string
   tb.signatre = :blob
   tb.paramList = index :Param
+}
+
+table (:Param) { |tb|
+  tb.id = 0x08
+  tb.flags = :ushort #enum:ParamAttributes
+  tb.sequence = :ushort
+  tb.name = :string
 }
 
 table (:MemberRef) { |tb|
@@ -271,7 +318,12 @@ table (:CustomAttribute) { |tb|
   tb.value = :blob
 }
 
-table (:Assebly) { |tb|
+table (:ModuleRef) { |tb|
+  tb.id = 0x1A
+  tb.name = :string
+}
+
+table (:Assembly) { |tb|
   tb.id = 0x20
   tb.hashAlg = :uint
   tb.majorVersion = :ushort
@@ -284,7 +336,7 @@ table (:Assebly) { |tb|
   tb.culture = :string
 }
 
-table (:AsseblyRef) { |tb|
+table (:AssemblyRef) { |tb|
   tb.id = 0x23
   tb.majorVersion = :ushort
   tb.minorVersion = :ushort
@@ -298,11 +350,23 @@ table (:AsseblyRef) { |tb|
 }
 
 puts "using System;\n\nnamespace BasicJit.CIL {\n\n"
+CodedToken.dump_all
 Table.tables.each {|tb| tb.dump }
 
 puts """
+public enum Table {
+"""
+Table.tables.each {|tb|
+  puts "  #{tb.table_name} = #{tb.id},"
+}
+puts """  MaxTableId = #{Table.id_max},
+  NotUsed,
+  Invalid
+}
+"""
+
+puts """
 public static class TableDecoder {
-  public const int MaxTableId = #{Table.id_max};
 
   public static int DecodeRowSize (int table, byte heap_sizes) {
     switch (table) {
