@@ -30,7 +30,7 @@ using System;
 using System.IO;
 using SimpleJit.Extensions;
 
-namespace BasicJit.CIL
+namespace SimpleJit.CIL
 {	
 	[FlagsAttribute]
 	public enum OpcodeFlags {

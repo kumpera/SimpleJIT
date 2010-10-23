@@ -29,7 +29,7 @@ using System;
 using SimpleJit.Extensions;
 using Mono;
 
-namespace BasicJit.CIL
+namespace SimpleJit.CIL
 {
 
 struct PeSection {

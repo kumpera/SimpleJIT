@@ -434,7 +434,7 @@ table (:GenericParam) { |tb|
   tb.name = :string
 }
 
-puts "using System;\n\nnamespace BasicJit.CIL {\n\n"
+puts "using System;\n\nnamespace SimpleJit.CIL {\n\n"
 CodedToken.dump_all
 Table.tables.each {|tb| tb.dump }
 

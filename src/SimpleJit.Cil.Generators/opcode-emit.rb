@@ -197,7 +197,7 @@ doc = Document.new(file)
 puts """
 using System;
 
-namespace BasicJit.CIL
+namespace SimpleJit.CIL
 {
 
 """
