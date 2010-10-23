@@ -27,11 +27,11 @@
 //
 using System;
 using SimpleJit.Extensions;
+using SimpleJit.Metadata;
 using Mono;
 
 namespace SimpleJit.CIL
 {
-
 struct PeSection {
 	internal int offset, virtual_size, raw_size, virtual_address;
 	internal string name;
@@ -60,19 +60,24 @@ struct TableData {
 	internal int size;	
 }
 
+/*
+TODO Cache sizes and use this information for 2/4 decoding instead of calculating it everytime.
+*/
+
 public class Image {
 	const int PE_OFFSET = 0x3C;
 	const int OPTIONAL_HEADER_SIZE = 224;
 	const int CLI_HEADER_SIZE = 72;
 	const int MAX_TABLE_SIZE = 1 << 16;
-	public const int STRING_BIT = 1;
-	public const int GUID_BIT = 2;
-	public const int BLOB_BIT = 4;
+	const int STRING_BIT = 1;
+	const int GUID_BIT = 2;
+	const int BLOB_BIT = 4;
 
-	byte[] data;
+	internal byte[] data;
 	PeSection[] sections;
 	StreamHeader[] streams;
 	TableData[] tables;
+	bool large_string, large_guid, large_blob;
 
 	int entrypoint;
 
@@ -80,6 +85,10 @@ public class Image {
 		this.data = data;
 		ReadHeaders ();
 		ReadTables ();
+	}
+
+	public MethodData LoadMethod (int idx) {
+		return new MethodData (this, idx);
 	}
 
 	String ReadCString (int offset, int maxSize) {
@@ -205,12 +214,52 @@ public class Image {
 			return 4;
 		return 2;
 	}
+
+	internal int RowOffset (Table table, int row) {
+		return tables [(int)table].offset + tables [(int)table].size * row;
+	}
+
+	internal uint ReadIndex (bool large, int offset) {
+		return large ? DataConverter.UInt32FromLE (data, offset) : DataConverter.UInt16FromLE (data, offset);		
+	}
+
+	internal uint ReadTableIndex (Table table, int offset) {
+		return ReadIndex (TableIndexSize (table) == 4, offset);
+	}
+
+	internal uint ReadStringIndex (int offset) {
+		return ReadIndex (large_string, offset);
+	}
+
+	internal uint ReadGuidIndex (int offset) {
+		return ReadIndex (large_guid, offset);
+	}
+
+	internal uint ReadBlobIndex (int offset) {
+		return ReadIndex (large_blob, offset);
+	}
+
+	internal int StringIndexSize {
+		 get { return large_string ? 4 : 2; }
+	}
+
+	internal int GuidIndexSize {
+		 get { return large_guid ? 4 : 2; }
+	}
 	
+	internal int BlobIndexSize {
+		 get { return large_blob ? 4 : 2; }
+	}
+
 	void ReadTables () {
 		var conv = DataConverter.LittleEndian;
 		int offset = GetStreamOffset ("#~");
 
 		var heap_sizes = data [offset + 6];
+		large_string = (heap_sizes & STRING_BIT) != 0;
+		large_guid = (heap_sizes & GUID_BIT) != 0;
+		large_blob = (heap_sizes & BLOB_BIT) != 0;
+
 		var valid_tables = conv.GetInt64 (data, offset + 8);
 		tables = new TableData [(int)Table.MaxTableId + 1];
 		offset += 24;
@@ -224,7 +273,7 @@ public class Image {
 		for (int i = 0; i <= (int)Table.MaxTableId; ++i) {
 			if (tables [i].rows > 0) {
 				tables [i].offset = offset;
-				tables [i].size = TableDecoder.DecodeRowSize (this, i, heap_sizes);
+				tables [i].size = TableDecoder.DecodeRowSize (this, i);
 				offset += tables [i].rows * tables [i].size;
 				Console.WriteLine ("table {0} has {1} rows size {2} offset 0x{3:x}", 
 					(Table)i, tables [i].rows,  tables [i].size, tables [i].offset);

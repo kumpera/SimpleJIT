@@ -48,6 +48,29 @@ class Table
     raise "don't know: " + t.to_s 
   end
 
+  def decode_field f
+    return "DataConverter.UInt16FromLE (data, offset)" if f == :ushort
+    return "DataConverter.UInt32FromLE (data, offset)" if f == :uint
+    return "image.ReadBlobIndex (offset)" if f == :blob
+    return "image.ReadGuidIndex (offset)" if f == :guid
+    return "image.ReadStringIndex (offset)" if f == :string
+    f.decode_field
+  end
+
+  def field_increment f
+    return "2" if f == :ushort
+    return "4" if f == :uint
+    return "image.BlobIndexSize" if f == :blob
+    return "image.GuidIndexSize" if f == :guid
+    return "image.StringIndexSize" if f == :string
+    f.increment_field
+  end
+  
+  def dump_decode field
+    puts "\t\tthis.#{field[0]} = #{decode_field field[1]};"
+    puts "\t\toffset += #{field_increment field [1]};"
+  end
+
   def dump
     puts "public struct #{@table_name}Row {"
     puts "\tconst int ID=#{id};"
@@ -64,15 +87,22 @@ class Table
       puts "\tinternal #{ftype} #{f[0]};"
     }
     puts ""
-    puts "\tpublic static int RowSize (Image image, byte head_sizes) {"
+    puts "\tpublic static int RowSize (Image image) {"
     puts "\t\tint size = #{base_size};"
-    puts "\t\tsize += Image.HeapSize (head_sizes, Image.BLOB_BIT, #{blob});" if blob > 0
-    puts "\t\tsize += Image.HeapSize (head_sizes, Image.STRING_BIT, #{string});" if string > 0
-    puts "\t\tsize += Image.HeapSize (head_sizes, Image.GUID_BIT, #{guid});" if guid > 0
+    puts "\t\tsize += image.BlobIndexSize * #{blob};" if blob > 0
+    puts "\t\tsize += image.StringIndexSize * #{string};" if string > 0
+    puts "\t\tsize += image.GuidIndexSize * #{guid};" if guid > 0
     @fields.each { |f| f[1].dump_size if f[1].class == CodedToken || f[1].class == Index }
 
     puts "\t\treturn size;"
     puts "\t}"
+    puts "\n\tpublic void Decode (Image image, int row) {"
+    puts "\t\tint offset = image.RowOffset (Table.#{@table_name}, row);"
+    puts "\t\tbyte[] data = image.data;"
+    @fields.each { |f| dump_decode f }
+    puts "\t}"
+
+
     puts "}\n\n"
   end
 end
@@ -84,6 +114,14 @@ class Index
 
   def dump_size
     puts "\t\tsize += image.TableIndexSize (Table.#{@table});"
+  end
+
+  def decode_field
+    "image.ReadTableIndex (Table.#{@table}, offset)"
+  end
+
+  def increment_field
+    "image.TableIndexSize (Table.#{@table})"
   end
 end
 
@@ -130,6 +168,15 @@ class CodedToken
     puts "\t\tsize += #{token_name}.DeriveSize (image);"
   end
 
+  def decode_field
+    "#{token_name}.ReadCodedToken (image, offset)"
+  end
+
+  def increment_field
+    "#{token_name}.DeriveSize (image)"
+  end
+  
+
   def dump
     puts """
 public struct #{token_name} {
@@ -140,8 +187,14 @@ public struct #{token_name} {
     @tables.each { |t| puts "    Table.#{t}," }
 
     puts """  };
-  public static int DeriveSize (Image img) {
-    return img.CodedIndexSize (MAX_TABLE_SIZE, ENCODED_TABLES);
+  public static int DeriveSize (Image image) {
+    return image.CodedIndexSize (MAX_TABLE_SIZE, ENCODED_TABLES);
+  }
+
+  public static #{token_name} ReadCodedToken (Image image, int offset) {
+    var res = new #{token_name} ();
+    res.token = image.ReadIndex (DeriveSize (image) == 4, offset);
+    return res;
   }
 }
 """
@@ -434,7 +487,7 @@ table (:GenericParam) { |tb|
   tb.name = :string
 }
 
-puts "using System;\n\nnamespace SimpleJit.CIL {\n\n"
+puts "using System;\nusing Mono;\n\nnamespace SimpleJit.CIL {\n\n"
 CodedToken.dump_all
 Table.tables.each {|tb| tb.dump }
 
@@ -453,11 +506,11 @@ puts """  MaxTableId = #{Table.id_max},
 puts """
 public static class TableDecoder {
 
-  public static int DecodeRowSize (Image image, int table, byte heap_sizes) {
+  public static int DecodeRowSize (Image image, int table) {
     switch (table) {
 """
 Table.tables.each {|tb|
-  puts "    case #{tb.id}: return #{tb.table_name}Row.RowSize (image, heap_sizes);"
+  puts "    case #{tb.id}: return #{tb.table_name}Row.RowSize (image);"
 }
 
 puts """    default: throw new Exception (\"Can't decode table 0x\" + table.ToString (\"X\"));
