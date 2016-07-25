@@ -27,13 +27,13 @@ bin:
 	mkdir bin
 
 bin/SimpleJit.dll: $(FILES)
-	gmcs -debug /unsafe -target:library -out:bin/SimpleJit.dll $(FILES)
+	mcs -debug /unsafe -target:library -out:bin/SimpleJit.dll $(FILES)
 
 bin/SimpleJit_test.dll: bin/SimpleJit.dll $(TEST_FILES)
-	gmcs -debug -target:library -out:bin/SimpleJit_test.dll -r:bin/SimpleJit.dll -r:nunit.framework.dll -r:nunit.framework.extensions.dll  -r:nunit.core.dll $(TEST_FILES)  
+	mcs -debug -target:library -out:bin/SimpleJit_test.dll -r:bin/SimpleJit.dll -r:nunit.framework.dll -r:nunit.framework.extensions.dll  -r:nunit.core.dll $(TEST_FILES)  
 
 bin/compiler.exe: bin/SimpleJit.dll $(COMPILER_FILES)
-	gmcs -debug /unsafe -out:bin/compiler.exe /r:bin/SimpleJit.dll $(COMPILER_FILES)
+	mcs -debug /unsafe -out:bin/compiler.exe /r:bin/SimpleJit.dll $(COMPILER_FILES)
 
 src/SimpleJit.Cil/OpcodesTableGenerated.cs: src/SimpleJit.Cil.Generators/opcode-emit.rb src/SimpleJit.Cil.Generators/opcodes.xml
 	ruby src/SimpleJit.Cil.Generators/opcode-emit.rb  > src/SimpleJit.Cil/OpcodesTableGenerated.cs src/SimpleJit.Cil.Generators/opcodes.xml
@@ -48,6 +48,6 @@ run-test: bin/SimpleJit_test.dll
 	 nunit-console2 bin/SimpleJit_test.dll
 
 bin/%.exe: samples/%.cs
-	gmcs /unsafe /r:bin/SimpleJit.dll -out:$@ $<
+	mcs /unsafe /r:bin/SimpleJit.dll -out:$@ $<
 
 .PHONY: run_test

@@ -156,8 +156,8 @@ class CodedToken
 
   def bits
     c = 1
-    b = 0;
-    while c < @tables.length :
+    b = 0
+    while c < @tables.length do
       b += 1
       c = c * 2
     end
