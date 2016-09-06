@@ -31,9 +31,33 @@ using SimpleJit.CIL;
 namespace SimpleJit.Metadata {
 
 public class MethodData {
+	Image image;
+	int rva;
+	int implFlags, flags;
+	string name;
+
 	public MethodData (Image image, int index) {
-		MethodDefRow row = new MethodDefRow ();
-		row.Decode (image, index);
+		var row = new MethodDefRow ();
+		row.Read (image, index);
+		this.image = image;
+		this.rva = (int)row.rva;
+		this.implFlags = row.implFlags;
+		this.flags = row.flags;
+		this.name = image.DecodeString (row.name);
+		// this.signature = image.LoadSignature (row.signature);
+		// this.paramList = image.ReadParamList (row.ParamList);
+	}
+
+	public string Name {
+		get { return name; }
+	}
+
+	public override string ToString () {
+		return $"method-def {this.name} implFlags: {this.implFlags:X} flags: {this.flags:X}";
+	}
+
+	public MethodBody GetBody () {
+		return image.LoadMethodBody (rva);
 	}
 }
 
