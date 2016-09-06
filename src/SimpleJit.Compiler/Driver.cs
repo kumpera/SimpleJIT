@@ -35,9 +35,13 @@ public class Driver {
 	static void Main (string[] args) {
 		Console.WriteLine ("compiling {0}", args[0]);
 		Image img = new Image (File.ReadAllBytes (args [0]));
-		MethodData method = img.LoadMethod (0);
-		Compiler compiler = new Compiler (method);
-		compiler.Run ();
+
+		Console.WriteLine ("we have {0} methods", img.MethodDefTable.Count);
+		for (int i = 0; i < img.MethodDefTable.Count; ++i) {
+			var method =  img.LoadMethodDef (i);
+			Compiler compiler = new Compiler (method);
+			compiler.Run ();
+		}
 	}
 }
 }
