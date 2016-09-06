@@ -81,6 +81,36 @@ namespace SimpleJit.CIL
 		public bool IsExtended { get { return extended; } } 
 		public bool IsValid { get { return (flags & OpcodeFlags.Invalid) == 0; } }
 
+
+		public int Size {
+			get {
+				int base_size = extended ? 2 : 1;
+				switch (this.flags & OpcodeFlags.OperandType) {
+				case OpcodeFlags.OperandSize1:
+					return base_size + 1;
+				case OpcodeFlags.OperandSize2:
+					return base_size + 2;
+				case OpcodeFlags.OperandSize4:
+					return base_size + 4;
+				case OpcodeFlags.OperandSize8:
+					throw new Exception ("param of size 8");
+				case OpcodeFlags.OperandSwitch: //FIXME implement me
+					throw new Exception ("not supported");
+				default:
+					return base_size;
+				}
+			}
+		}
+
+		public static void DecodeNext (byte[] b, int idx, out OpcodeTraits op)
+		{
+			byte cur = b [idx++];
+			if (cur != (byte)Opcode.ExtendedPrefix)
+				TraitsLookup.Decode (cur, out op);
+			else
+				TraitsLookup.DecodeExtended (b [idx++], out op);
+		}
+
 		internal static void DecodeNext (Stream reader, out OpcodeTraits op) {
 			byte cur = (byte)reader.ReadByte ();
 			if (cur != (byte)Opcode.ExtendedPrefix)
