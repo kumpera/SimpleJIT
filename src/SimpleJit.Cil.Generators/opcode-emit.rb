@@ -111,9 +111,11 @@ def writeOpcodeInit el
 	case (el.attributes['operandtype'])
 	  when "InlineNone"
 	    flags = "#{flags} | OpcodeFlags.NoOperand"
-	  when "ShortInlineBrTarget", "ShortInlineI", "ShortInlineParam", "ShortInlineR", "ShortInlineVar"
+	  when "ShortInlineBrTarget", "ShortInlineI", "ShortInlineParam", "ShortInlineVar"
+	    flags = "#{flags} | OpcodeFlags.OperandSize1"
+	  when "InlineParam"
 	    flags = "#{flags} | OpcodeFlags.OperandSize2"
-	  when "InlineBrTarget", "InlineField", "InlineI", "InlineMethod", "InlineSig", "InlineString", "InlineParam", "InlineTok", "InlineType", "InlineVar"
+	  when "ShortInlineR", "InlineBrTarget", "InlineField", "InlineI", "InlineMethod", "InlineSig", "InlineString", "InlineTok", "InlineType", "InlineVar"
 	    flags = "#{flags} | OpcodeFlags.OperandSize4"
 	  when "InlineI8", "InlineR"
 	    flags = "#{flags} | OpcodeFlags.OperandSize8"
