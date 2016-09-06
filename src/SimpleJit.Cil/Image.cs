@@ -60,11 +60,38 @@ struct TableData {
 	internal int size;	
 }
 
+
+public interface IRow {
+	void Read (Image img, int idx);
+}
+
+public struct TableReader<T> where T: struct, IRow
+{
+	Image image;
+	TableData table;
+	internal TableReader (Image image, TableData table)
+	{
+		this.image = image;
+		this.table = table;
+	}
+
+	public int Count {
+		get { return table.rows; }
+	}
+
+	public T ReadRow (int idx) {
+		T t = default (T);
+		t.Read (image, idx);
+		return t;
+	}
+}
+
+
 /*
 TODO Cache sizes and use this information for 2/4 decoding instead of calculating it everytime.
 */
 
-public class Image {
+public partial class Image {
 	const int PE_OFFSET = 0x3C;
 	const int OPTIONAL_HEADER_SIZE = 224;
 	const int CLI_HEADER_SIZE = 72;
@@ -87,8 +114,14 @@ public class Image {
 		ReadTables ();
 	}
 
-	public MethodData LoadMethod (int idx) {
+	//FIXME no caching, index in untyped
+	public MethodData LoadMethodDef (int idx) {
 		return new MethodData (this, idx);
+	}
+
+
+	public MethodBody LoadMethodBody (int rva) {
+		return new MethodBody (this, RvaToOffset (rva));
 	}
 
 	String ReadCString (int offset, int maxSize) {
@@ -114,12 +147,16 @@ public class Image {
 		throw new Exception ("rva not mapped");
 	}
 
-	int GetStreamOffset (string stream) {
+	StreamHeader GetStream (string stream) {
 		for (int i = 0; i < streams.Length; ++i) {
 			if (streams [i].name == stream)
-				return streams [i].offset;
+				return streams [i];
 		}
 		throw new Exception ("Could not find stream " + stream);
+	}
+
+	int GetStreamOffset (string stream) {
+		return GetStream (stream).offset;
 	}
 
 	PePointer ReadPePointer (int offset) {
@@ -249,6 +286,14 @@ public class Image {
 	
 	internal int BlobIndexSize {
 		 get { return large_blob ? 4 : 2; }
+	}
+
+	internal unsafe String DecodeString (uint index)
+	{
+		var stream = GetStream ("#Strings");
+		fixed (byte *ptr = &data[(int)index + stream.offset]) {
+			return new String ((sbyte*)ptr);
+		}
 	}
 
 	void ReadTables () {

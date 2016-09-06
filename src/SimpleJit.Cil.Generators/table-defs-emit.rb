@@ -72,7 +72,7 @@ class Table
   end
 
   def dump
-    puts "public struct #{@table_name}Row {"
+    puts "public struct #{@table_name}Row : IRow {"
     puts "\tconst int ID=#{id};"
     blob = 0
     string = 0
@@ -96,7 +96,7 @@ class Table
 
     puts "\t\treturn size;"
     puts "\t}"
-    puts "\n\tpublic void Decode (Image image, int row) {"
+    puts "\n\tpublic void Read (Image image, int row) {"
     puts "\t\tint offset = image.RowOffset (Table.#{@table_name}, row);"
     puts "\t\tbyte[] data = image.data;"
     @fields.each { |f| dump_decode f }
@@ -352,7 +352,7 @@ table (:Field) { |tb|
   tb.id = 0x04
   tb.flags = :ushort #enum:FieldAttributes
   tb.name = :string
-  tb.signatre = :blob
+  tb.signature = :blob
   tb.paramList = index :Param
 }
 
@@ -362,7 +362,7 @@ table (:MethodDef) { |tb|
   tb.implFlags = :ushort #enum:MethodImplFlags
   tb.flags = :ushort #enum:MethodFlags
   tb.name = :string
-  tb.signatre = :blob
+  tb.signature = :blob
   tb.paramList = index :Param
 }
 
@@ -518,5 +518,18 @@ puts """    default: throw new Exception (\"Can't decode table 0x\" + table.ToSt
   }
 }
 
+
+public partial class Image {
+  """
+  Table.tables.each {|tb|
+    puts """
+    public TableReader<#{tb.table_name}Row> #{tb.table_name}Table {
+      get { return new TableReader<#{tb.table_name}Row> (this, this.tables[#{tb.id}]); }
+    }
+"""
+  }
+
+puts """
+  }
 }
 """
