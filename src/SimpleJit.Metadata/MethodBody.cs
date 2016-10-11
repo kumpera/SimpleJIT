@@ -33,18 +33,24 @@ namespace SimpleJit.Metadata {
 	
 public struct IlIterator {
 	byte [] body;
-	int idx;
+	int idx, op_idx;
 	OpcodeTraits current;
 
 	public IlIterator (byte [] body) {
 		this.body = body;
 		this.idx = 0;
+		this.op_idx = -1;
 		OpcodeTraits.DecodeNext (body, idx, out current);
+	}
+
+	public bool HasNext {
+		get { return idx <  body.Length; }
 	}
 
 	public bool MoveNext () {
 		if (idx >= body.Length)
 			return false;
+		op_idx = idx;
 		OpcodeTraits.DecodeNext (body, idx, out current);
 		idx += current.Size;
 		return true;
@@ -55,7 +61,23 @@ public struct IlIterator {
 	}
 
 	public int Index {
-		get { return idx - current.Size; }
+		get { return op_idx; }
+	}
+
+	public int NextIndex { 
+		get { return idx; }
+}
+
+	public OpcodeFlags Flags {
+		get { return current.flags; }
+	}
+
+	public int DecodeParamI () {
+		return current.DecodeParamI (body, op_idx);
+	}
+
+	public Opcode Opcode {
+		get { return current.Opcode; }
 	}
 }
 

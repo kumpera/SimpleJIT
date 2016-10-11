@@ -30,6 +30,8 @@ using System;
 using System.IO;
 using SimpleJit.Extensions;
 
+using Mono;
+
 namespace SimpleJit.CIL
 {	
 	[FlagsAttribute]
@@ -61,10 +63,10 @@ namespace SimpleJit.CIL
 	}
 
 	public struct OpcodeTraits {
-		private readonly OpcodeFlags flags;
-		private readonly String mnemonic;
-		private readonly byte opcode;
-		private readonly bool extended;
+		internal readonly OpcodeFlags flags;
+		internal readonly String mnemonic;
+		internal readonly byte opcode;
+		internal readonly bool extended;
 
 		public OpcodeTraits (OpcodeFlags flags, String mnemonic, byte opcode, bool extended) {
 			this.flags = flags;
@@ -109,6 +111,27 @@ namespace SimpleJit.CIL
 				TraitsLookup.Decode (cur, out op);
 			else
 				TraitsLookup.DecodeExtended (b [idx++], out op);
+		}
+
+		public int DecodeParamI (byte[] b, int idx) {
+			idx += extended ? 2 : 1;
+
+			switch (this.flags & OpcodeFlags.OperandType) {
+			case OpcodeFlags.NoOperand:
+				throw new Exception ("no param");
+			case OpcodeFlags.OperandSize1:
+				return b [idx];
+			case OpcodeFlags.OperandSize2:
+				return DataConverter.Int16FromLE (b, idx);
+			case OpcodeFlags.OperandSize4:
+			return DataConverter.Int32FromLE (b, idx);
+			case OpcodeFlags.OperandSize8:
+				throw new Exception ("param of size 8");
+			case OpcodeFlags.OperandSwitch:
+				throw new Exception ("variable length param");
+			default:
+				throw new Exception ("invalid opcode type " + this.flags);
+			}
 		}
 
 		internal static void DecodeNext (Stream reader, out OpcodeTraits op) {
