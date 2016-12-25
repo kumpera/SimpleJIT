@@ -21,7 +21,7 @@ COMPILER_FILES = src/SimpleJit.Compiler/Driver.cs	\
 
 SAMPLES = bin/simple-fun.exe
 
-all: bin bin/SimpleJit.dll bin/SimpleJit_test.dll bin/compiler.exe
+all: bin bin/SimpleJit.dll bin/SimpleJit_test.dll bin/compiler.exe zz.dll
 
 samples : $(SAMPLES)
 bin:
@@ -41,6 +41,9 @@ src/SimpleJit.Cil/OpcodesTableGenerated.cs: src/SimpleJit.Cil.Generators/opcode-
 
 src/SimpleJit.Cil/MetadataTableGenerated.cs: src/SimpleJit.Cil.Generators/table-defs-emit.rb
 	ruby src/SimpleJit.Cil.Generators/table-defs-emit.rb  > src/SimpleJit.Cil/MetadataTableGenerated.cs
+
+zz.dll: zz.cs
+	mcs /unsafe zz.cs -target:library -out:zz.dll
 
 compile: bin/SimpleJit.dll bin/SimpleJit_test.dll
 	@echo done

@@ -33,22 +33,31 @@ namespace SimpleJit.Metadata {
 	
 public struct IlIterator {
 	byte [] body;
-	int idx, op_idx;
+	int idx, op_idx, end;
 	OpcodeTraits current;
 
 	public IlIterator (byte [] body) {
 		this.body = body;
 		this.idx = 0;
 		this.op_idx = -1;
+		this.end = body.Length;
+		OpcodeTraits.DecodeNext (body, idx, out current);
+	}
+
+	public IlIterator (byte [] body, int idx, int end) {
+		this.body = body;
+		this.idx = idx;
+		this.op_idx = -1;
+		this.end = end;
 		OpcodeTraits.DecodeNext (body, idx, out current);
 	}
 
 	public bool HasNext {
-		get { return idx <  body.Length; }
+		get { return idx < end; }
 	}
 
 	public bool MoveNext () {
-		if (idx >= body.Length)
+		if (idx >= end)
 			return false;
 		op_idx = idx;
 		OpcodeTraits.DecodeNext (body, idx, out current);

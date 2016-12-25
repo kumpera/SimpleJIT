@@ -44,16 +44,27 @@ public class BasicBlock {
 	List <BasicBlock> from = new List <BasicBlock> ();
 	List <BasicBlock> to = new List <BasicBlock> ();
 
+	internal HashSet<int> InVars = new HashSet<int> (); 
+	internal HashSet<int> OutVars = new HashSet<int> ();
+	internal HashSet<int> DefVars = new HashSet<int> ();
+
 	public BasicBlock (Compiler c) {
 		Number = c.bb_number++;
 	}
 
+	public IReadOnlyList <BasicBlock> To { get { return to; } }
+	public IReadOnlyList <BasicBlock> From { get { return from; } }
+	public bool Visited { get; set; }
+	public bool Done { get; set; }
 
 	public override string ToString () {
 		var fromStr = string.Join (",", from.Select (bb => bb.Number.ToString ()));
 		var toStr = string.Join (",", to.Select (bb => bb.Number.ToString ()));
+		var inVars = string.Join (",", InVars);
+		var outVars = string.Join (",", OutVars);
+		var defVars = string.Join (",", DefVars);
 		
-		return $"BB ({Number}) [0x{Start:X} - 0x{End:X}] FROM ({fromStr}) TO ({toStr})";
+		return $"BB ({Number}) [0x{Start:X} - 0x{End:X}] FROM ({fromStr}) TO ({toStr}) IN-VARS ({inVars}) OUT-VARS ({outVars}) DEFS ({defVars})";
 	}
 
 	public BasicBlock SplitAt (Compiler c, int offset, bool link) {
@@ -97,6 +108,12 @@ public class BasicBlock {
 		// Console.WriteLine ($"LINKING {Number} To {targetBB.Number}");
 	}
 
+	public void UnlinkTo (BasicBlock targetBB) {
+		to.Remove (targetBB);
+		targetBB.from.Remove (this);
+		// Console.WriteLine ($"LINKING {Number} To {targetBB.Number}");
+	}
+
 	public BasicBlock Find (int offset) {
 		BasicBlock current;
 		for (current = this; current != null; current = current.NextInOrder) {
@@ -114,6 +131,7 @@ public class BasicBlock {
 
 public class Compiler {
 	MethodData method;
+	MethodBody body;
 	internal BasicBlock first_bb;
 	internal int bb_number;
 
@@ -131,16 +149,16 @@ public class Compiler {
 		
 	}
 
-	void ComputeBasicBlocks (MethodBody mb) {
+	void ComputeBasicBlocks () {
 		var current = new BasicBlock (this) {
 			Start = 0,
-			End = mb.Body.Length,
+			End = body.Body.Length,
 		};
 
 		Console.WriteLine ("=== BB formation");
 		first_bb = current;
 
-		var it = mb.GetIterator ();
+		var it = body.GetIterator ();
 		while (it.MoveNext ()) {
 			Console.WriteLine ("0x{0:X}: {1} [{2}]", it.Index, it.Mnemonic, it.Flags & OpcodeFlags.FlowControlMask);
 			switch (it.Flags & OpcodeFlags.FlowControlMask) {
@@ -148,14 +166,17 @@ public class Compiler {
 			case OpcodeFlags.Call:
 				if (it.Opcode == Opcode.Jmp)
 					throw new Exception ("no support for jmp");
-				if (it.NextIndex >= current.End)
+				if (it.NextIndex >= current.End) {
+					current.LinkTo (current.NextInOrder);
 					current = current.NextInOrder;
+				}
 				break; //nothing to do here
 			case OpcodeFlags.Branch: {
 				var target_offset = it.NextIndex + it.DecodeParamI ();
 				var next = current.SplitAt (this, it.NextIndex, link: false);
-				var target = first_bb.Find (target_offset).SplitAt (this, target_offset, link: true);
+				var target = first_bb.Find (target_offset).SplitAt (this, target_offset, link: false);
 				current.LinkTo (target);
+				current.UnlinkTo (next);
 				current = next;
 				// DumpBB ();
 				break;
@@ -189,6 +210,166 @@ public class Compiler {
 		DumpBB ();
 	}
 
+	static void AddUse (HashSet<int> uses, HashSet<int> defs, int var) {
+		if (!defs.Contains (var)) {
+			Console.WriteLine ($"\t\tFound use of {var}");
+			uses.Add (var);
+		}
+	}
+
+	static void AddDef (HashSet<int> uses, HashSet<int> defs, int var) {
+		// if (!uses.Contains (var)) {
+		Console.WriteLine ($"\t\tFound def of {var}");
+			defs.Add (var);
+		// }
+	}
+
+	IlIterator GetILIterator (BasicBlock bb) {
+		return new IlIterator (body.Body, bb.Start, bb.End);
+	}
+
+	void EmitBasicBlockBodies () {
+		var list = new List<BasicBlock> (); //FIXME use a queue collection
+
+		Console.WriteLine ("=== BB code emit");
+		BasicBlock current;
+		//First to last we compute income regs due unknown uses
+		for (current = first_bb; current != null; current = current.NextInOrder) {
+			Console.WriteLine ($"processing {current}");
+
+			var it = GetILIterator (current);
+
+			HashSet<int> uses = new HashSet<int> (); 
+			HashSet<int> defs = new HashSet<int> ();
+
+			while (it.MoveNext ()) {
+				Console.WriteLine ("\t[{0}]:{1}", it.Index, it.Mnemonic);
+				switch (it.Opcode) {
+				case Opcode.Stloc0:
+					AddDef (uses, defs, 1);
+					break;
+				case Opcode.Ldloc0:
+					AddUse (uses, defs, 1);
+					break;
+				case Opcode.StargS:
+					AddDef (uses, defs, -1 - it.DecodeParamI ());
+					break;
+				case Opcode.Ldarg0:
+					AddUse (uses, defs, -1);
+					break;
+				case Opcode.Ldarg1:
+					AddUse (uses, defs, -2);
+					break;
+
+				}
+			}
+			current.InVars.UnionWith (uses);
+			current.DefVars.UnionWith (defs);
+
+			//Queue leaf nodes as they are all ready
+			if (current.To.Count == 0) {
+				list.Add (current);
+				current.Visited = true;
+			}
+		}
+		DumpBB ();
+
+		while (list.Count > 0) {
+			current = list [0];
+			list.RemoveAt (0);
+
+			int inC = current.InVars.Count;
+			int outC = current.OutVars.Count;
+			foreach (var next in current.To)
+				current.OutVars.UnionWith (next.InVars);
+			foreach (var prev in current.From)
+				current.InVars.UnionWith (prev.OutVars);
+
+			//XXX figure out proper invalidation rules
+			//bool all = inC != current.InVars.Count || outC != current.OutVars.Count;
+			
+			foreach (var prev in current.From) {
+				if (!prev.Visited) {
+					list.Add (prev);
+					prev.Visited = true;
+				}
+			}
+		}
+		//compute initial candidates, emit in reverse dominator order
+		DumpBB ();
+	}
+	void OldEmitBasicBlockBodies () {
+		var list = new List<BasicBlock> (); //FIXME use a queue collection
+
+		Console.WriteLine ("=== BB code emit");
+
+
+		BasicBlock current;
+		for (current = first_bb; current != null; current = current.NextInOrder) {
+			if (current.To.Count == 0) {
+				list.Add (current);
+				current.Visited = true;
+			}
+		}
+
+		while (list.Count > 0) {
+			current = list [0];
+			list.RemoveAt (0);
+
+			Console.WriteLine ($"processing {current}");
+			//zero has no meaning locs are positive, args are negative
+			HashSet<int> uses = new HashSet<int> (); 
+			HashSet<int> defs = new HashSet<int> ();
+
+			var it = GetILIterator (current);
+			while (it.MoveNext ()) {
+				Console.WriteLine ("\t[{0}]:{1}", it.Index, it.Mnemonic);
+				switch (it.Opcode) {
+				case Opcode.Stloc0:
+					AddDef (uses, defs, 1);
+					break;
+				case Opcode.Ldloc0:
+					AddUse (uses, defs, 1);
+					break;
+				case Opcode.StargS:
+					AddDef (uses, defs, -1 - it.DecodeParamI ());
+					break;
+				case Opcode.Ldarg0:
+					AddUse (uses, defs, -1);
+					break;
+				}
+			}
+
+			current.InVars.UnionWith (uses);
+
+			foreach (var next in current.To) {
+				foreach (var v in next.InVars) {
+					if (!defs.Contains (v))
+						current.InVars.Add (v);
+				}
+			}
+
+			//current.OutVars.UnionWith (defs);
+
+
+			Console.WriteLine ("\tUses ({0}) defs ({1})", string.Join(",", uses), string.Join (",", defs));
+			foreach (var prev in current.From) {
+				if (!prev.Visited) {
+					prev.Visited = true;
+					list.Add (prev);
+				}
+			}
+		}
+		DumpBB ();
+	}
+
+	void ResetVisited () {
+		BasicBlock current;
+
+		for (current = first_bb; current != null; current = current.NextInOrder)
+			current.Visited = false;
+	}
+
 	public void Run () {
 		/*
 		Compilation pipeline:
@@ -204,11 +385,14 @@ public class Compiler {
 
 		*/
 
-		var body = method.GetBody ();
+		this.body = method.GetBody ();
 		Console.WriteLine ("\t{0}", body);
 
 		//set 1, BB formation
-		ComputeBasicBlocks (body);
+		ComputeBasicBlocks ();
+
+		//set 2, emit BBs in reverse order
+		EmitBasicBlockBodies ();
 	}
 }
 
