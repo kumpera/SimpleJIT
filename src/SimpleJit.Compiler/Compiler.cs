@@ -511,6 +511,7 @@ public class Compiler {
 
 		var it = GetILIterator (bb);
 		var s = new EvalStack (bb);
+		bool done = false;
 		while (it.MoveNext ()) {
 			switch (it.Opcode) {
 			case Opcode.Add:
@@ -546,22 +547,31 @@ public class Compiler {
 				s.EmitCondBranch (Opcode.Ble, infos);
 				if (it.HasNext)
 					throw new Exception ("Branch MUST be last op in a BB");
+				done = true;
 				break;
 			case Opcode.Br:
 				s.EmitBranch (new CallInfo (varTable, bb.To [0]));
 				if (it.HasNext)
 					throw new Exception ("Branch MUST be last op in a BB");
+				done = true;
 				break;
 			case Opcode.Ret:
 				varTable [0] = s.StoreVar ();//XXX check signatune to see if there's a return value
 				s.EmitBranch (new CallInfo (varTable, bb.To [0]));
 				if (it.HasNext)
 					throw new Exception ("Ret MUST be last op in a BB");
+				done = true;
 				break;
 
 			default:
 				throw new Exception ($"Cannot emit {it.Mnemonic}");
 			}
+		}
+		if (!done) {
+			if (bb.To.Count > 1)
+				throw new Exception ("Can't fall through to multiple blocks");
+			if (bb.To.Count == 1)
+				s.EmitBranch (new CallInfo (varTable, bb.To [0]));
 		}
 	}
 
