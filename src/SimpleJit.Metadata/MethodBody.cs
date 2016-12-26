@@ -49,7 +49,10 @@ public struct IlIterator {
 		this.idx = idx;
 		this.op_idx = -1;
 		this.end = end;
-		OpcodeTraits.DecodeNext (body, idx, out current);
+		if (idx < end)
+			OpcodeTraits.DecodeNext (body, idx, out current);
+		else
+			current = default (OpcodeTraits);
 	}
 
 	public bool HasNext {

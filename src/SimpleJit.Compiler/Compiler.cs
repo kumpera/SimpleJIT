@@ -38,9 +38,9 @@ namespace SimpleJit.Compiler {
 	public enum Ops {
 		IConst,
 		Mov,
-		SetRet,
 		Add,
 		Ble,
+		Br,
 	}
 
 	public class CallInfo {
@@ -55,6 +55,11 @@ namespace SimpleJit.Compiler {
 				Args.Add (varTable [v]);
 			}
 			Target = target;
+		}
+
+		public override string ToString () {
+			var vars = string.Join (",", Args.Select (a => a.ToString ()));
+			return $"(BB{Target.Number}, {vars})";
 		}
 	}
 
@@ -78,10 +83,10 @@ namespace SimpleJit.Compiler {
 				return $"{Op} R{Dest} <= {Const0}";
 			case Ops.Mov:
 				return $"{Op} R{Dest} <= R{R0}";
-			case Ops.SetRet:
-				return $"{Op} R{R0}";
 			case Ops.Ble:
-				return $"{Op} R{R0} R{R1} ({CallInfos[0]}) ({CallInfos[1]})";
+				return $"{Op} R{R0} R{R1} {CallInfos[0]} {CallInfos[1]}";
+			case Ops.Br:
+				return $"{Op} {CallInfos[0]}";
 			default:
 				return $"{Op} R{Dest} <= R{R0} R{R1}";
 			}
@@ -97,12 +102,11 @@ public class BasicBlock {
 	public int Start { get; set; }
 	public int End { get; set; }
 	public int Number { get; private set; }
-	public BasicBlock NextInOrder { get; private set; }
+	public BasicBlock NextInOrder { get; set; }
 	List <BasicBlock> from = new List <BasicBlock> ();
 	List <BasicBlock> to = new List <BasicBlock> ();
 
 	internal HashSet<int> InVars = new HashSet<int> (); 
-	// internal HashSet<int> OutVars = new HashSet<int> ();
 	internal HashSet<int> DefVars = new HashSet<int> ();
 
 	Ins first, last;
@@ -133,7 +137,6 @@ public class BasicBlock {
 		var fromStr = string.Join (",", from.Select (bb => bb.Number.ToString ()));
 		var toStr = string.Join (",", to.Select (bb => bb.Number.ToString ()));
 		var inVars = string.Join (",", InVars);
-		// var outVars = string.Join (",", OutVars);
 		var defVars = string.Join (",", DefVars);
 		string body = "";
 		if (first != null) {
@@ -144,11 +147,10 @@ public class BasicBlock {
 				body += $"\t{c}";
 			}
 		}
-		return $"BB ({Number}) [0x{Start:X} - 0x{End:X}] FROM ({fromStr}) TO ({toStr}) IN-VARS ({inVars}) DEFS ({defVars}) {body}";
+		return $"BB ({Number}) [0x{Start:X} - 0x{End:X}] FROM ({fromStr}) TO ({toStr}) IN-VARS ({inVars}) DEFS ({defVars}){body}";
 	}
 
 	public BasicBlock SplitAt (Compiler c, int offset, bool link) {
-		// Console.WriteLine ($"splitting ({Number}) at 0x{offset:X}");
 		if (offset < Start)
 			throw new Exception ($"Can't split {this} at {offset:X}, it's before");
 		if (offset == Start) {
@@ -218,7 +220,7 @@ public class BasicBlock {
 public class Compiler {
 	MethodData method;
 	MethodBody body;
-	internal BasicBlock first_bb;
+	internal BasicBlock first_bb, epilogue;
 	internal int bb_number;
 
 	public Compiler (MethodData method) {
@@ -242,6 +244,11 @@ public class Compiler {
 
 		Console.WriteLine ("=== BB formation");
 		first_bb = current;
+
+		epilogue = new BasicBlock (this) {
+			Start = body.Body.Length,
+			End = body.Body.Length,
+		};
 
 		var it = body.GetIterator ();
 		while (it.MoveNext ()) {
@@ -279,7 +286,10 @@ public class Compiler {
 			case OpcodeFlags.Return: {
 				if (it.HasNext) {
 					var next = current.SplitAt (this, it.NextIndex, link: false);
+					current.LinkTo (epilogue);
 					current = next;
+				} else {
+					current.LinkTo (epilogue);
 				}
 				break;
 			}
@@ -291,6 +301,8 @@ public class Compiler {
 				throw new Exception ($"Invalid opcode flags {it.Flags}");
 			}
 		}
+		current.NextInOrder = epilogue;
+		
 		DumpBB ("BB Formation");
 	}
 
@@ -316,6 +328,9 @@ public class Compiler {
 		Console.WriteLine ("=== BB code emit");
 		BasicBlock current;
 		//First to last we compute income regs due unknown uses
+
+		epilogue.InVars.Add (0);//XXX check signatune to see if there's a return value
+
 		for (current = first_bb; current != null; current = current.NextInOrder) {
 			Console.WriteLine ($"processing {current}");
 
@@ -342,7 +357,9 @@ public class Compiler {
 				case Opcode.Ldarg1:
 					AddUse (current.InVars, current.DefVars, -2);
 					break;
-
+				case Opcode.Ret:
+					AddDef (current.InVars, current.DefVars, 0);
+					break;
 				}
 			}
 			//Queue leaf nodes as they are all ready
@@ -368,7 +385,6 @@ public class Compiler {
 			}
 
 			current.Done = true;
-			//XXX figure out proper invalidation rules
 			bool modified = inC != current.InVars.Count;
 			
 			foreach (var prev in current.From) {
@@ -469,18 +485,16 @@ public class Compiler {
 				R1 = r1,
 				CallInfos = infos,
 			};
-			stack.Push (i);
+
 			bb.Append (i);
 		}
 
-		public void EmitBranch () { }
+		public void EmitBranch (CallInfo info) {
+			Console.WriteLine ("Branch");
 
-		public void SetRet () {
-			var r0 = stack.Pop ().Dest;
-			var i = new Ins (Ops.SetRet) {
-				R0 = r0,
+			var i = new Ins (Ops.Br) {
+				CallInfos = new CallInfo[] { info },
 			};
-			stack.Push (i);
 			bb.Append (i);
 		}
 	}
@@ -527,20 +541,20 @@ public class Compiler {
 
 				var infos = new CallInfo [2];
 				infos [0] = new CallInfo (varTable, bb.To [0]);
-				infos [0] = new CallInfo (varTable, bb.To [1]);
+				infos [1] = new CallInfo (varTable, bb.To [1]);
 
 				s.EmitCondBranch (Opcode.Ble, infos);
 				if (it.HasNext)
 					throw new Exception ("Branch MUST be last op in a BB");
 				break;
 			case Opcode.Br:
-				s.EmitBranch ();
+				s.EmitBranch (new CallInfo (varTable, bb.To [0]));
 				if (it.HasNext)
 					throw new Exception ("Branch MUST be last op in a BB");
 				break;
 			case Opcode.Ret:
-				s.SetRet (); //XXX check signatune to see whether a store ret is needed
-				s.EmitBranch ();
+				varTable [0] = s.StoreVar ();//XXX check signatune to see if there's a return value
+				s.EmitBranch (new CallInfo (varTable, bb.To [0]));
 				if (it.HasNext)
 					throw new Exception ("Ret MUST be last op in a BB");
 				break;
