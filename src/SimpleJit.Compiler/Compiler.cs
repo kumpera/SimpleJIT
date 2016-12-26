@@ -40,6 +40,7 @@ namespace SimpleJit.Compiler {
 		Mov,
 		Add,
 		Ble,
+		Blt,
 		Br,
 	}
 
@@ -58,7 +59,7 @@ namespace SimpleJit.Compiler {
 		}
 
 		public override string ToString () {
-			var vars = string.Join (",", Args.Select (a => a.ToString ()));
+			var vars = string.Join (",", Args.Select (a => "R" + a));
 			return $"(BB{Target.Number}, {vars})";
 		}
 	}
@@ -84,6 +85,7 @@ namespace SimpleJit.Compiler {
 			case Ops.Mov:
 				return $"{Op} R{Dest} <= R{R0}";
 			case Ops.Ble:
+			case Ops.Blt:
 				return $"{Op} R{R0} R{R1} {CallInfos[0]} {CallInfos[1]}";
 			case Ops.Br:
 				return $"{Op} {CallInfos[0]}";
@@ -106,8 +108,8 @@ public class BasicBlock {
 	List <BasicBlock> from = new List <BasicBlock> ();
 	List <BasicBlock> to = new List <BasicBlock> ();
 
-	internal HashSet<int> InVars = new HashSet<int> (); 
-	internal HashSet<int> DefVars = new HashSet<int> ();
+	internal ISet<int> InVars = new SortedSet<int> ();
+	internal ISet<int> DefVars = new HashSet<int> ();
 
 	Ins first, last;
 	int reg;
@@ -306,14 +308,14 @@ public class Compiler {
 		DumpBB ("BB Formation");
 	}
 
-	static void AddUse (HashSet<int> inVars, HashSet<int> defs, int var) {
+	static void AddUse (ISet<int> inVars, ISet<int> defs, int var) {
 		if (!defs.Contains (var)) {
 			Console.WriteLine ($"\t\tFound use of {var}");
 			inVars.Add (var);
 		}
 	}
 
-	static void AddDef (HashSet<int> inVars, HashSet<int> defs, int var) {
+	static void AddDef (ISet<int> inVars, ISet<int> defs, int var) {
 		Console.WriteLine ($"\t\tFound def of {var}");
 		defs.Add (var);
 	}
@@ -345,8 +347,14 @@ public class Compiler {
 				case Opcode.Stloc0:
 					AddDef (current.InVars, current.DefVars, 1);
 					break;
+				case Opcode.Stloc1:
+					AddDef (current.InVars, current.DefVars, 2);
+					break;
 				case Opcode.Ldloc0:
 					AddUse (current.InVars, current.DefVars, 1);
+					break;
+				case Opcode.Ldloc1:
+					AddUse (current.InVars, current.DefVars, 2);
 					break;
 				case Opcode.StargS:
 					AddDef (current.InVars, current.DefVars, -1 - it.DecodeParamI ());
@@ -368,6 +376,8 @@ public class Compiler {
 				current.Enqueued = true;
 			}
 		}
+
+		DumpBB ("Before converge");
 
 		while (list.Count > 0) {
 			current = list [0];
@@ -416,6 +426,7 @@ public class Compiler {
 	static Ops CilToCondOp (Opcode op) {
 		switch (op) {
 		case Opcode.Ble: return Ops.Ble;
+		case Opcode.Blt: return Ops.Blt;
 		default: throw new Exception ($"{op} is not a condop");
 		}
 	}
@@ -515,19 +526,34 @@ public class Compiler {
 		while (it.MoveNext ()) {
 			switch (it.Opcode) {
 			case Opcode.Add:
-				s.PushBinOp (Opcode.Add);
+				s.PushBinOp (it.Opcode);
 				break;
 			case Opcode.LdcI4_0:
 				s.PushInt (0);
 				break;
+			case Opcode.LdcI4_1:
+				s.PushInt (1);
+				break;
 			case Opcode.LdcI4_2:
 				s.PushInt (2);
+				break;
+			case Opcode.LdcI4_3:
+				s.PushInt (3);
+				break;
+			case Opcode.LdcI4S:
+				s.PushInt (it.DecodeParamI ());
 				break;
 			case Opcode.Stloc0:
 				varTable [1] = s.StoreVar ();
 				break;
+			case Opcode.Stloc1:
+				varTable [2] = s.StoreVar ();
+				break;
 			case Opcode.Ldloc0:
 				s.LoadVar (varTable [1]);
+				break;
+			case Opcode.Ldloc1:
+				s.LoadVar (varTable [2]);
 				break;
 			case Opcode.Ldarg0:
 				s.LoadVar (varTable [-1]);
@@ -535,6 +561,7 @@ public class Compiler {
 			case Opcode.Ldarg1:
 				s.LoadVar (varTable [-2]);
 				break;
+			case Opcode.Blt:
 			case Opcode.Ble:
 				Console.WriteLine ("varTable before cond:");
 				foreach (var kv in varTable)
@@ -544,7 +571,7 @@ public class Compiler {
 				infos [0] = new CallInfo (varTable, bb.To [0]);
 				infos [1] = new CallInfo (varTable, bb.To [1]);
 
-				s.EmitCondBranch (Opcode.Ble, infos);
+				s.EmitCondBranch (it.Opcode, infos);
 				if (it.HasNext)
 					throw new Exception ("Branch MUST be last op in a BB");
 				done = true;
@@ -575,6 +602,40 @@ public class Compiler {
 		}
 	}
 
+	/*
+	How does regalloc work?
+   
+	Challlenges:
+		Figure out pressure and spill. The BB params approach makes repair easy for
+		register assignment but tricky for allocation.
+
+	# Coloring
+	Local backwards pass:
+		Good with use constrains (r0 clobber, reg-pairs, etc)
+		Sucks at handling def constrains (reg args, call returns, etc)
+		Indiferent to interference due to, e.g. call clobbered regs.
+
+	Local forwards pass:
+		It's the converse of the backwards pass. It helps with reg args and call returns.
+
+	The global pass has a similar issue, every time you have a BB with more than one entry or exit,
+	one of the directions will suffer. In general, repair is easy as long as we don't have a critical edge (which requires breaking).
+
+	In practice, we only care about coloring of loops carried variables. For that we need to figure out how to reduce the chance
+	of healing.
+
+	# Spilling
+
+	Spilling present an interesting problem. Figuring out the var to spill and do spill/fill insertion is really tricky.
+	The extra challenge of this design is that we lose global visiblity so spilling across blocks means a later decision could reduce
+	the color number of a BB if the spilled var is "pass through".
+
+	This will require empirial experimentation.
+
+	*/
+	void RegAlloc ()
+	{
+	}
 
 	public void Run () {
 		/*
@@ -594,11 +655,20 @@ public class Compiler {
 		this.body = method.GetBody ();
 		Console.WriteLine ("\t{0}", body);
 
-		//set 1, BB formation
+		//step 1, BB formation
 		ComputeBasicBlocks ();
 
-		//set 2, emit BBs in reverse order
+		//step 2, emit BBs in reverse order
 		EmitBasicBlockBodies ();
+
+		//step 3, optimizations (TODO)
+
+		//step 4, insel, scheduling
+
+		//step 5, spill & reg alloc
+		RegAlloc ();
+
+		//step 6, codegen
 	}
 }
 
