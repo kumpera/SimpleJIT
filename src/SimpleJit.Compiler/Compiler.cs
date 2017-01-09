@@ -35,6 +35,39 @@ using System.Linq;
 
 namespace SimpleJit.Compiler {
 
+	/*
+	arg regs RDI RSI RDX RCX R8 R9
+	callee regs RAX RCX RDX RSI RDI R9 R10 - I.E. scratch regs
+	callee saved regs RBX R12 R13 R14 R15 RBP - I.E. calls don't clobber, but must be saved on prologue
+	*/
+	public class CallConv {
+		static Register[] args = new Register[] {
+			Register.RDI,
+			Register.RSI,
+			Register.RDX,
+			Register.RCX,
+			Register.R8,
+			Register.R9,
+		};
+
+		public static int RegForArg (int arg) {
+			return (int)args [arg];
+		}
+	}
+
+	internal static class IntExtensions {
+		internal static Register UnmaskReg (int v) {
+			return (Register)(-v - 1);
+		}
+
+		internal static string V2S (this int vreg) {
+			if (vreg >= 0)
+				return "R" + vreg;
+			return UnmaskReg (vreg).ToString ();
+		}
+		
+	}
+
 	public enum Ops {
 		IConst,
 		Mov,
@@ -42,6 +75,183 @@ namespace SimpleJit.Compiler {
 		Ble,
 		Blt,
 		Br,
+		//Pseudo ops used by reg alloc
+		LoadArg,
+		SetRet
+	}
+
+	public enum Register : byte {
+		None = 0xFF,
+		Dead = 0xFE,
+		RAX = 0,
+		RCX = 1,
+		RDX = 2,
+		RBX = 3,
+		RSP = 4,
+		RBP = 5,
+		RSI = 6,
+		RDI = 7,
+		R8 = 8,
+		R9 = 9,
+		R10 = 10,
+		R11 = 11,
+		R12 = 12,
+		R13 = 13,
+		R14 = 14,
+		R15 = 15,
+		RIP = 16,
+		RegCount = 16,
+	}
+
+	class RegAllocState {
+		Register[] varToReg;
+		int[] regToVar;
+		BasicBlock bb;
+		
+		public RegAllocState (BasicBlock bb) {
+			varToReg = new Register [bb.MaxReg ()];
+			for (int i = 0; i < varToReg.Length; ++i)
+				varToReg [i] = Register.None;
+			regToVar = new int [(int)Register.RegCount];
+			for (int i = 0; i < (int)Register.RegCount; ++i)
+				regToVar [i] = -1;
+			this.bb = bb;
+		}
+
+		void Assign (int var, Register reg) {
+			regToVar [(int)reg] = var;
+			varToReg [var] = reg;
+		}
+
+		Register FindReg () {
+			// var s = string.Join (",", regToVar.Select (v => v.ToString ()));
+			// Console.WriteLine ($"find reg: ({s})");
+
+			for (int i = 0; i < regToVar.Length; ++i) {
+				//Silly hack around not using masks
+				if (i == (int)Register.RSP || i == (int)Register.RBP)
+					continue;
+				if (regToVar [i] == -1) {
+					// Console.WriteLine ("Found {0}/{1}", i, (Register)i);
+					return (Register)i;
+				}
+			}
+			return Register.None;
+		}
+
+		Register Alloc (int vreg) {
+			Register reg = FindReg ();
+			if (reg == Register.None)
+				throw new Exception ("Need to spill");
+			Assign (vreg, reg);
+			return reg;
+		}
+
+		int MaskReg (Register reg) {
+			return -(1 + (int)reg);
+		}
+
+		int Conv (int vreg) {
+			Register reg = varToReg [vreg];
+			if (reg == Register.None || reg == Register.Dead)
+				throw new Exception ($"Can't assign bad reg to ins {reg}");
+			return MaskReg (reg);
+		}
+
+		public void Move (Ins ins, int to, int from) {
+			// if (varToReg [to] == Register.None)
+				// throw new Exception ($"Dead var or bug? to {to} {varToReg[to]}");
+
+			//this is a dead store, reduce the live range of from
+			if (varToReg [to] == Register.None) {
+				if (varToReg [from] == Register.None)
+					Assign (from, FindReg ());
+				ins.Dest = MaskReg (Register.RAX);
+				ins.R0 = Conv (from);
+				return;
+			}
+			//If this is the last usage of $from, we can treat this as a rename
+			if (varToReg [from] == Register.None)
+				Assign (from, varToReg [to]);
+
+			ins.Dest = Conv (to);
+			ins.R0 = Conv (from);
+
+			varToReg [to] = Register.Dead;
+		}
+
+		public void Def (Ins ins, int reg) {
+			ins.Dest = Conv (reg);
+			//This just kills the reg
+			varToReg [reg] = Register.Dead;
+		}
+
+		public void BinOp (Ins ins, int dest, int r0, int r1) {
+			//Binop follows x86 rules of r0 getting clobbered.
+			if (varToReg [dest] == Register.None)
+				throw new Exception ($"Dead var or bug? dest: {varToReg [dest]}");
+
+			if (varToReg [r0] == Register.None)
+				Assign (r0, varToReg [dest]);
+
+			if (varToReg [r1] == Register.None)
+				Alloc (r1);
+
+			ins.Dest = Conv (dest);
+			ins.R0 = Conv (r0);
+			ins.R1 = Conv (r1);
+
+			varToReg [dest] = Register.Dead;
+		}
+
+		public void CondBranch (Ins ins, int r0, int r1, CallInfo[] infos) {
+			for (int j = 0; j < infos.Length; ++j)
+				this.CallInfo (infos [j]);
+			Alloc (r0);
+			Alloc (r1);
+			ins.R0 = Conv (r0);
+			ins.R1 = Conv (r1);
+		}
+
+		public void DirectBranch (Ins ins, CallInfo[] infos) {
+			for (int j = 0; j < infos.Length; ++j)
+				this.CallInfo (infos [j]);
+		}
+
+		void CallInfo (CallInfo info) {
+			//Checking preference per-reg is kinda silly as it's an all or nothing situation
+			for (int i = 0; i < info.Args.Count; ++i)
+				Use (info.Args [i], info.Target.InVarsAlloc?[i]);
+
+			for (int i = 0; i < info.Args.Count; ++i)
+				info.Args [i] = Conv (info.Args [i]);
+		}
+
+		void Use (int var, Register? preference) {
+			// Console.WriteLine ($"*Use ${var} pref ${preference}");
+			if (preference != null && regToVar [(int)preference.Value] == -1) {
+				Assign (var, preference.Value);
+			} else {
+				Alloc (var);
+			}
+		}
+
+		public void Finish () {
+			bb.InVarsAlloc = new List<Register> ();
+			foreach (var vreg in bb.InVars) {
+				Register reg = varToReg [vreg];
+				if (reg == Register.None || reg == Register.Dead)
+					throw new Exception ("WTF");
+				bb.InVarsAlloc.Add (reg);
+			}
+		}
+		public string State {
+			get {
+				var s = string.Join (",", regToVar.Where (r => r != -1).Select (v => $"{v} => {varToReg [v]}"));
+
+				return $"RA ({s})";
+			}
+		}
 	}
 
 	public class CallInfo {
@@ -59,7 +269,7 @@ namespace SimpleJit.Compiler {
 		}
 
 		public override string ToString () {
-			var vars = string.Join (",", Args.Select (a => "R" + a));
+			var vars = string.Join (",", Args.Select (a => a.V2S ()));
 			return $"(BB{Target.Number}, {vars})";
 		}
 	}
@@ -78,19 +288,37 @@ namespace SimpleJit.Compiler {
 		public Ins Prev { get; private set; }
 		public Ins Next { get; private set; }
 
+		string DStr {
+			get {
+				return Dest.V2S ();
+			}
+		}
+
+		string R0Str {
+			get {
+				return R0.V2S ();
+			}
+		}
+
+		string R1Str {
+			get {
+				return R1.V2S ();
+			}
+		}
+
 		public override string ToString () {
 			switch (Op) {
 			case Ops.IConst:
-				return $"{Op} R{Dest} <= {Const0}";
+				return $"{Op} {DStr} <= {Const0}";
 			case Ops.Mov:
-				return $"{Op} R{Dest} <= R{R0}";
+				return $"{Op} {DStr} <= {R0Str}";
 			case Ops.Ble:
 			case Ops.Blt:
-				return $"{Op} R{R0} R{R1} {CallInfos[0]} {CallInfos[1]}";
+				return $"{Op} {R0Str} {R1Str} {CallInfos[0]} {CallInfos[1]}";
 			case Ops.Br:
 				return $"{Op} {CallInfos[0]}";
 			default:
-				return $"{Op} R{Dest} <= R{R0} R{R1}";
+				return $"{Op} {DStr} <= {R0Str} {R1Str}";
 			}
 		}
 
@@ -110,12 +338,20 @@ public class BasicBlock {
 
 	internal ISet<int> InVars = new SortedSet<int> ();
 	internal ISet<int> DefVars = new HashSet<int> ();
+	public List<Register> InVarsAlloc { get; set; }
 
 	Ins first, last;
 	int reg;
 
+	public Ins FirstIns { get { return first; } }
+	public Ins LastIns { get { return last; } }
+
 	public int NextReg () {
 		return reg++;
+	}
+
+	public int MaxReg () {
+		return reg;
 	}
 
 	public void Append (Ins ins) {
@@ -126,6 +362,17 @@ public class BasicBlock {
 			last = ins;
 		}
 	}
+
+	public void Prepend (Ins ins) {
+		if (first == null) {
+			first = last = ins;
+		} else {
+			ins.SetNext (first);
+			first = ins;
+		}
+	}
+
+
 	public BasicBlock (Compiler c) {
 		Number = c.bb_number++;
 	}
@@ -149,7 +396,12 @@ public class BasicBlock {
 				body += $"\t{c}";
 			}
 		}
-		return $"BB ({Number}) [0x{Start:X} - 0x{End:X}] FROM ({fromStr}) TO ({toStr}) IN-VARS ({inVars}) DEFS ({defVars}){body}";
+		string ra = "";
+		if (InVarsAlloc != null) {
+			var regset = string.Join (",", InVarsAlloc.Select (r => r.ToString ()));
+			ra = $" RA ({regset})";
+		}
+		return $"BB ({Number}) [0x{Start:X} - 0x{End:X}] FROM ({fromStr}) TO ({toStr}) IN-VARS ({inVars}) DEFS ({defVars}){ra}{body}";
 	}
 
 	public BasicBlock SplitAt (Compiler c, int offset, bool link) {
@@ -270,7 +522,8 @@ public class Compiler {
 				var next = current.SplitAt (this, it.NextIndex, link: false);
 				var target = first_bb.Find (target_offset).SplitAt (this, target_offset, link: false);
 				current.LinkTo (target);
-				current.UnlinkTo (next);
+				if (target != next)
+					current.UnlinkTo (next);
 				current = next;
 				break;
 			}
@@ -525,6 +778,8 @@ public class Compiler {
 		bool done = false;
 		while (it.MoveNext ()) {
 			switch (it.Opcode) {
+			case Opcode.Nop: //Right now nothing, later, seqpoints
+				break;
 			case Opcode.Add:
 				s.PushBinOp (it.Opcode);
 				break;
@@ -577,6 +832,7 @@ public class Compiler {
 				done = true;
 				break;
 			case Opcode.Br:
+				Console.WriteLine ($"BB TO LEN {bb.To.Count}");
 				s.EmitBranch (new CallInfo (varTable, bb.To [0]));
 				if (it.HasNext)
 					throw new Exception ("Branch MUST be last op in a BB");
@@ -600,6 +856,37 @@ public class Compiler {
 			if (bb.To.Count == 1)
 				s.EmitBranch (new CallInfo (varTable, bb.To [0]));
 		}
+	}
+
+	void RegAlloc (BasicBlock bb) {
+		Console.WriteLine ("Allocating BB{0}", bb.Number);
+		var ra = new RegAllocState (bb);
+
+		for (Ins ins = bb.LastIns; ins != null; ins = ins.Prev) {
+			Console.WriteLine ($"Before {ins.ToString ()}");
+			switch (ins.Op) {
+			case Ops.IConst:
+				ra.Def (ins, ins.Dest);
+				break;
+			case Ops.Mov:
+				ra.Move (ins, ins.Dest, ins.R0);
+				break;
+			case Ops.Add:
+				ra.BinOp (ins, ins.Dest, ins.R0, ins.R1);
+				break;
+			case Ops.Ble:
+			case Ops.Blt:
+				ra.CondBranch (ins, ins.R0, ins.R1, ins.CallInfos);
+				break;
+			case Ops.Br:
+				ra.DirectBranch (ins, ins.CallInfos);
+				break;
+			default:
+				throw new Exception ($"Don't now how to reg alloc {ins}");
+			}
+			Console.WriteLine ($"After {ins.ToString ()}\n\t{ra.State}");
+		}
+		ra.Finish ();
 	}
 
 	/*
@@ -632,9 +919,56 @@ public class Compiler {
 
 	This will require empirial experimentation.
 
+	How do we find what are the loop carried vars?
+		We can pick vars from the exit branch but not on the continue branch. Those are clearly Loop Invariant Variables.
 	*/
-	void RegAlloc ()
-	{
+	void RegAlloc () {
+		Console.WriteLine ("DOING REGALLOC");
+
+		//Insert fake instructions for reg args
+		
+		//XXX right now we have a fixed 2 int args
+		if (first_bb.From.Count > 0)
+			throw new Exception ("The first BB MUST NOT have predecessors");
+
+		for (int i = 1; i >= 0; --i) {
+			first_bb.Prepend (
+				new Ins (Ops.LoadArg) {
+					Dest = i,
+					Const0 = CallConv.RegForArg (i)
+				});
+		}
+
+		epilogue.Append (new Ins (Ops.SetRet) {
+			R0 = 0
+		});
+
+		var list = new List<BasicBlock> (); //FIXME use a queue collection
+
+		for (var current = first_bb; current != null; current = current.NextInOrder) {
+			current.Enqueued = current.Done = false;
+			if (current.To.Count == 0) {
+				list.Add (current);
+				current.Enqueued = true;
+			}
+		}
+
+		while (list.Count > 0) {
+			var current = list [0];
+			list.RemoveAt (0);
+			current.Enqueued = false;
+
+			current.Done = true;
+			RegAlloc (current);
+
+			foreach (var prev in current.From) {
+				if (!prev.Enqueued) {
+					list.Add (prev);
+					prev.Enqueued = true;
+				}
+			}
+		}
+		DumpBB ("AFTER REGALLOC");
 	}
 
 	public void Run () {

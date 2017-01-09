@@ -43,7 +43,7 @@ src/SimpleJit.Cil/MetadataTableGenerated.cs: src/SimpleJit.Cil.Generators/table-
 	ruby src/SimpleJit.Cil.Generators/table-defs-emit.rb  > src/SimpleJit.Cil/MetadataTableGenerated.cs
 
 zz.dll: zz.cs
-	mcs /unsafe zz.cs -target:library -out:zz.dll
+	mcs -debug /unsafe zz.cs -target:library -out:zz.dll
 
 compile: bin/SimpleJit.dll bin/SimpleJit_test.dll
 	@echo done
