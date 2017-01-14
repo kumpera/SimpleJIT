@@ -67,7 +67,7 @@ namespace SimpleJit.Compiler {
 	}
 
 	internal static class IntExtensions {
-		internal static Register UnmaskReg (int v) {
+		internal static Register UnmaskReg (this int v) {
 			return (Register)(-v - 1);
 		}
 
@@ -164,7 +164,7 @@ namespace SimpleJit.Compiler {
 			return reg;
 		}
 
-		int MaskReg (Register reg) {
+		static int MaskReg (Register reg) {
 			return -(1 + (int)reg);
 		}
 
@@ -262,44 +262,61 @@ namespace SimpleJit.Compiler {
 		}
 
 		void CallInfo (CallInfo info) {
-			if (info.Target.InVarsAlloc == null) //This happens the loop tail-> loop head edge.
-				throw new Exception ("Can't handle cyclic CFGs yet");
 			var repairing = new List<Tuple<Register,Register>> ();
-			for (int i = 0; i < info.Args.Count; ++i)
-				Use (info.Args [i], info.Target.InVarsAlloc [i], repairing);
+
+			if (info.Target.InVarsAlloc == null) { //This happens the loop tail-> loop head edge.
+				for (int i = 0; i < info.Args.Count; ++i)
+					AllocIfNeeded (info.Args [i]);
+				info.Target.NeedRepairing = true;
+				info.NeedRepairing = true;
+			} else {
+				for (int i = 0; i < info.Args.Count; ++i) {
+					Console.WriteLine ($"CI[{i}] {info.Args[i].V2S()} {info.Target.InVarsAlloc [i]}");
+					Use (info.Args [i], info.Target.InVarsAlloc [i], repairing);
+				}
+			}
 
 			for (int i = 0; i < info.Args.Count; ++i)
 				info.Args [i] = Conv (info.Args [i]);
 
 			if (repairing.Count > 0) {
-				var table = String.Join (",", repairing.Select (t => $"{t.Item1} => {t.Item2}"));
-				Console.WriteLine ($"REPAIRING WITH {table}");
-				/*CI allocation only requires repairing when the current BB has multiple out edges
-				so we always repair on the target.
-				We can only repair on the target if it has a single incomming BB.
-				What this mean is that we might need to remove a critical-edge at this point. TBD
-				*/
-
-				if (info.Target.From.Count > 1)
-					throw new Exception ("Can't handle critical edges yet");
-
-				if (repairing.Count > 1)
-					throw new Exception ("Need to figure out how to compute repair optimal swapping");
-
-				//One var repair
-				info.Target.Prepend (new Ins (Ops.Mov) {
-					Dest = MaskReg (repairing [0].Item1),
-					R0 = MaskReg (repairing [0].Item2)
-				});
-
-				for (int i = 0; i < info.Target.InVarsAlloc.Count; ++i) {
-					if (info.Target.InVarsAlloc [i] == repairing [0].Item1) {
-						info.Target.InVarsAlloc [i] = repairing [0].Item2;
-						break;
-					}
-				}
-
+				EmitRepairCode (info.Target, repairing);
 			}
+		}
+
+		static void EmitRepairCode (BasicBlock bb, List<Tuple<Register,Register>> repairing) {
+			var table = String.Join (",", repairing.Select (t => $"{t.Item1} => {t.Item2}"));
+			Console.WriteLine ($"REPAIRING WITH {table}");
+			/*CI allocation only requires repairing when the current BB has multiple out edges
+			so we always repair on the target.
+			We can only repair on the target if it has a single incomming BB.
+			What this mean is that we might need to remove a critical-edge at this point. TBD
+			*/
+
+			if (bb.From.Count > 1)
+				throw new Exception ("Can't handle critical edges yet");
+
+			if (repairing.Count > 1)
+				throw new Exception ("Need to figure out how to compute repair optimal swapping");
+
+			//One var repair
+			bb.Prepend (new Ins (Ops.Mov) {
+				Dest = MaskReg (repairing [0].Item1),
+				R0 = MaskReg (repairing [0].Item2)
+			});
+
+			for (int i = 0; i < bb.InVarsAlloc.Count; ++i) {
+				if (bb.InVarsAlloc [i] == repairing [0].Item1) {
+					bb.InVarsAlloc [i] = repairing [0].Item2;
+					break;
+				}
+			}
+		}
+
+		Register AllocIfNeeded (int vreg) {
+			if (varToReg [vreg] != Register.None)
+				return varToReg [vreg];
+			return Alloc (vreg);
 		}
 
 		void Use (int var, Register preference, List<Tuple<Register,Register>> repairing) {
@@ -312,6 +329,19 @@ namespace SimpleJit.Compiler {
 			}
 		}
 
+		void RepairInfo (BasicBlock bb, BasicBlock from, CallInfo info) {
+			Console.WriteLine ($"REPAIRING THE LINK BB{from.Number} to BB{bb.Number}");
+
+			info.NeedRepairing = false;
+			var repairing = new List<Tuple<Register,Register>> ();
+			for (int i = 0; i < info.Args.Count; ++i) {
+				Register source = info.Args [i].UnmaskReg ();
+				if (bb.InVarsAlloc [i] != source)
+					repairing.Add (Tuple.Create (source, bb.InVarsAlloc [i]));
+			}
+			EmitRepairCode (bb, repairing);
+		}
+
 		public void Finish () {
 			bb.InVarsAlloc = new List<Register> ();
 			for (int i = 0; i < bb.InVars.Count; ++i) {
@@ -320,6 +350,21 @@ namespace SimpleJit.Compiler {
 					throw new Exception ("WTF");
 				bb.InVarsAlloc.Add (reg);
 			}
+
+			if (bb.NeedRepairing) {
+				Console.WriteLine ("DOING BB REPAIR ON FINISH BB{0}", bb.Number);
+				bb.NeedRepairing = false;
+				for (int i = 0; i < bb.From.Count; ++i) {
+					CallInfo[] infos = bb.From [i].LastIns.CallInfos;
+					for (int j = 0; j < infos.Length; ++j) {
+						if (infos [j].Target == bb && infos [j].NeedRepairing) {
+							RepairInfo (bb, bb.From [i], infos [j]);
+							break;
+						}
+					}
+				}
+			}
+
 		}
 		public string State {
 			get {
@@ -333,6 +378,7 @@ namespace SimpleJit.Compiler {
 	public class CallInfo {
 		public List<int> Args { get; set; }
 		public BasicBlock Target { get; set; }
+		public bool NeedRepairing { get; set; }
 
 		public CallInfo (Dictionary <int, int> varTable, BasicBlock target) {
 			Args = new List<int> ();
@@ -462,6 +508,7 @@ public class BasicBlock {
 	public IReadOnlyList <BasicBlock> From { get { return from; } }
 	public bool Enqueued { get; set; }
 	public bool Done { get; set; }
+	public bool NeedRepairing { get; set; }
 
 	public override string ToString () {
 		var fromStr = string.Join (",", from.Select (bb => bb.Number.ToString ()));
@@ -684,11 +731,17 @@ public class Compiler {
 				case Opcode.Stloc1:
 					AddDef (current.InVars, current.DefVars, 2);
 					break;
+				case Opcode.Stloc2:
+					AddDef (current.InVars, current.DefVars, 3);
+					break;
 				case Opcode.Ldloc0:
 					AddUse (current.InVars, current.DefVars, 1);
 					break;
 				case Opcode.Ldloc1:
 					AddUse (current.InVars, current.DefVars, 2);
+					break;
+				case Opcode.Ldloc2:
+					AddUse (current.InVars, current.DefVars, 3);
 					break;
 				case Opcode.StargS:
 					AddDef (current.InVars, current.DefVars, -1 - it.DecodeParamI ());
@@ -885,11 +938,17 @@ public class Compiler {
 			case Opcode.Stloc1:
 				varTable [2] = s.StoreVar ();
 				break;
+			case Opcode.Stloc2:
+				varTable [3] = s.StoreVar ();
+				break;
 			case Opcode.Ldloc0:
 				s.LoadVar (varTable [1]);
 				break;
 			case Opcode.Ldloc1:
 				s.LoadVar (varTable [2]);
+				break;
+			case Opcode.Ldloc2:
+				s.LoadVar (varTable [3]);
 				break;
 			case Opcode.Ldarg0:
 				s.LoadVar (varTable [-1]);
@@ -974,7 +1033,7 @@ public class Compiler {
 			Console.WriteLine ($"After {ins.ToString ()}\n\t{ra.State}");
 		}
 		ra.Finish ();
-		// Console.WriteLine ("AFTER RA:\n{0}", bb);
+		Console.WriteLine ("AFTER RA:\n{0}", bb);
 	}
 
 	/*
@@ -1045,12 +1104,12 @@ public class Compiler {
 			var current = list [0];
 			list.RemoveAt (0);
 			current.Enqueued = false;
-
 			current.Done = true;
+
 			RegAlloc (current);
 
 			foreach (var prev in current.From) {
-				if (!prev.Enqueued) {
+				if (!prev.Enqueued && !prev.Done) {
 					list.Add (prev);
 					prev.Enqueued = true;
 				}
@@ -1059,6 +1118,13 @@ public class Compiler {
 		DumpBB ("AFTER REGALLOC");
 	}
 
+	static string BranchOpToJmp (Ops op) {
+		switch (op) {
+		case Ops.Ble: return "jle";
+		case Ops.Blt: return "jl";
+		default: throw new Exception ($"Not a branch op {op}");
+		}
+	}
 	void CodeGen () {
 		Console.WriteLine ("--- CODEGEN");
 
@@ -1079,11 +1145,14 @@ public class Compiler {
 					var str = ins.Const0.ToString ("X");
 					Console.WriteLine ($"\tmov $0x{str}, %{ins.Dest.V2S().ToLower ()}");
 					break;
-				} case Ops.Ble:
+				}
+				case Ops.Ble:
+				case Ops.Blt: {
+					var mi = BranchOpToJmp (ins.Op);
 					Console.WriteLine ($"\tcmp %{ins.R0.V2S().ToLower ()}, %{ins.R1.V2S().ToLower ()}");
-					Console.WriteLine ($"\tjle $BB{ins.CallInfos[0].Target.Number}");
+					Console.WriteLine ($"\t{mi} $BB{ins.CallInfos[0].Target.Number}");
 					break;
-				case Ops.Br:
+				} case Ops.Br:
 					if (ins.CallInfos[0].Target != bb.NextInOrder)
 						Console.WriteLine ($"\tjmp $BB{ins.CallInfos[0].Target.Number}");
 					break;
