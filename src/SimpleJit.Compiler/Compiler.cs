@@ -32,7 +32,14 @@ using SimpleJit.CIL;
 using SimpleJit.Metadata;
 using System.Linq;
 
+/* Allready found design flaws:
 
+The use of LoadArg sucks as it is the same reg shuffling problem of repairing and it doesn't allow for a global decision to be made.
+	-If we support external allocation of BB::InVars (as a way to handle LCOV), this becomes a common case
+
+
+
+*/
 namespace SimpleJit.Compiler {
 
 	/*
@@ -50,8 +57,12 @@ namespace SimpleJit.Compiler {
 			Register.R9,
 		};
 
-		public static int RegForArg (int arg) {
-			return (int)args [arg];
+		public static Register RegForArg (int arg) {
+			return args [arg];
+		}
+
+		public static Register ReturnReg {
+			get { return Register.RAX; }
 		}
 	}
 
@@ -66,6 +77,12 @@ namespace SimpleJit.Compiler {
 			return UnmaskReg (vreg).ToString ();
 		}
 		
+	}
+
+	internal static class RegisterExtensions {
+		internal static bool Valid (this Register reg) {
+			return reg != Register.None && reg != Register.Dead;
+		}
 	}
 
 	public enum Ops {
@@ -180,10 +197,11 @@ namespace SimpleJit.Compiler {
 			varToReg [to] = Register.Dead;
 		}
 
-		public void Def (Ins ins, int reg) {
-			ins.Dest = Conv (reg);
+		public void Def (Ins ins, int vreg) {
+			ins.Dest = Conv (vreg);
 			//This just kills the reg
-			varToReg [reg] = Register.Dead;
+			regToVar [(int)varToReg [vreg]] = -1;
+			varToReg [vreg] = Register.Dead;
 		}
 
 		public void BinOp (Ins ins, int dest, int r0, int r1) {
@@ -218,28 +236,86 @@ namespace SimpleJit.Compiler {
 				this.CallInfo (infos [j]);
 		}
 
+		public void SetRet (Ins ins, int vreg) {
+			if (varToReg [vreg].Valid ())
+				throw new Exception ("SetReg MUST be the last use of the vreg on its BB");
+
+			Register reg = CallConv.ReturnReg;
+			if (regToVar [(int)reg] >= 0)
+				throw new Exception ("For some reason, someone is already using SetReg's register. Fix your IR!");
+
+			Assign (vreg, reg);
+			ins.R0 = Conv (vreg);
+		}
+
+		public void LoadArg (Ins ins, int dest, int position) {
+			Register reg = CallConv.RegForArg (position);
+			if (varToReg [dest] != reg) {
+				Console.WriteLine ($"need to do shit. I want {reg} but have {varToReg [dest]}");
+				if (regToVar [(int)reg] >= 0)
+					throw new Exception ($"the var we want is fucked {regToVar [(int)reg]}");
+				ins.Op = Ops.Mov;
+				ins.Dest = MaskReg (varToReg [dest]);
+				ins.R0 = MaskReg (reg);
+			}
+			// throw new Exception ("whatevs");
+		}
+
 		void CallInfo (CallInfo info) {
-			//Checking preference per-reg is kinda silly as it's an all or nothing situation
+			if (info.Target.InVarsAlloc == null) //This happens the loop tail-> loop head edge.
+				throw new Exception ("Can't handle cyclic CFGs yet");
+			var repairing = new List<Tuple<Register,Register>> ();
 			for (int i = 0; i < info.Args.Count; ++i)
-				Use (info.Args [i], info.Target.InVarsAlloc?[i]);
+				Use (info.Args [i], info.Target.InVarsAlloc [i], repairing);
 
 			for (int i = 0; i < info.Args.Count; ++i)
 				info.Args [i] = Conv (info.Args [i]);
+
+			if (repairing.Count > 0) {
+				var table = String.Join (",", repairing.Select (t => $"{t.Item1} => {t.Item2}"));
+				Console.WriteLine ($"REPAIRING WITH {table}");
+				/*CI allocation only requires repairing when the current BB has multiple out edges
+				so we always repair on the target.
+				We can only repair on the target if it has a single incomming BB.
+				What this mean is that we might need to remove a critical-edge at this point. TBD
+				*/
+
+				if (info.Target.From.Count > 1)
+					throw new Exception ("Can't handle critical edges yet");
+
+				if (repairing.Count > 1)
+					throw new Exception ("Need to figure out how to compute repair optimal swapping");
+
+				//One var repair
+				info.Target.Prepend (new Ins (Ops.Mov) {
+					Dest = MaskReg (repairing [0].Item1),
+					R0 = MaskReg (repairing [0].Item2)
+				});
+
+				for (int i = 0; i < info.Target.InVarsAlloc.Count; ++i) {
+					if (info.Target.InVarsAlloc [i] == repairing [0].Item1) {
+						info.Target.InVarsAlloc [i] = repairing [0].Item2;
+						break;
+					}
+				}
+
+			}
 		}
 
-		void Use (int var, Register? preference) {
+		void Use (int var, Register preference, List<Tuple<Register,Register>> repairing) {
 			// Console.WriteLine ($"*Use ${var} pref ${preference}");
-			if (preference != null && regToVar [(int)preference.Value] == -1) {
-				Assign (var, preference.Value);
+			if (regToVar [(int)preference] == -1) {
+				Assign (var, preference);
 			} else {
-				Alloc (var);
+				var reg = Alloc (var);
+				repairing.Add (Tuple.Create (preference, reg));
 			}
 		}
 
 		public void Finish () {
 			bb.InVarsAlloc = new List<Register> ();
-			foreach (var vreg in bb.InVars) {
-				Register reg = varToReg [vreg];
+			for (int i = 0; i < bb.InVars.Count; ++i) {
+				Register reg = varToReg [i];
 				if (reg == Register.None || reg == Register.Dead)
 					throw new Exception ("WTF");
 				bb.InVarsAlloc.Add (reg);
@@ -277,8 +353,9 @@ namespace SimpleJit.Compiler {
 	public class Ins {
 		public Ins (Ops op) {
 			this.Op = op;
+			Dest = R0 = R1 = -100;
 		}
-		public Ops Op { get; private set; }
+		public Ops Op { get; set; }
 		public int Dest { get; set; }
 		public int R0 { get; set; }
 		public int R1 { get; set; }
@@ -317,6 +394,10 @@ namespace SimpleJit.Compiler {
 				return $"{Op} {R0Str} {R1Str} {CallInfos[0]} {CallInfos[1]}";
 			case Ops.Br:
 				return $"{Op} {CallInfos[0]}";
+			case Ops.LoadArg:
+				return $"{Op} {DStr} <= REG_ARG {Const0}";
+			case Ops.SetRet:
+				return $"{Op} {R0Str}";
 			default:
 				return $"{Op} {DStr} <= {R0Str} {R1Str}";
 			}
@@ -881,12 +962,19 @@ public class Compiler {
 			case Ops.Br:
 				ra.DirectBranch (ins, ins.CallInfos);
 				break;
+			case Ops.SetRet:
+				ra.SetRet (ins, ins.R0);
+				break;
+			case Ops.LoadArg:
+				ra.LoadArg (ins, ins.Dest, ins.Const0);
+				break;
 			default:
 				throw new Exception ($"Don't now how to reg alloc {ins}");
 			}
 			Console.WriteLine ($"After {ins.ToString ()}\n\t{ra.State}");
 		}
 		ra.Finish ();
+		// Console.WriteLine ("AFTER RA:\n{0}", bb);
 	}
 
 	/*
@@ -935,7 +1023,7 @@ public class Compiler {
 			first_bb.Prepend (
 				new Ins (Ops.LoadArg) {
 					Dest = i,
-					Const0 = CallConv.RegForArg (i)
+					Const0 = i //FIXME connect this to the calling convention as the register arg position is arbitrary
 				});
 		}
 
@@ -971,6 +1059,52 @@ public class Compiler {
 		DumpBB ("AFTER REGALLOC");
 	}
 
+	void CodeGen () {
+		Console.WriteLine ("--- CODEGEN");
+
+		//hardcoded prologue
+		Console.WriteLine ("\tpushq %rbp");
+		Console.WriteLine ("\tmovq %rsp, %rbp");
+
+		for (var bb = first_bb; bb != null; bb = bb.NextInOrder) {
+			Console.WriteLine ($"BB{bb.Number}:");
+
+			for (Ins ins = bb.FirstIns; ins != null; ins = ins.Next) {
+				switch (ins.Op) {
+				case Ops.Mov:
+					if (ins.Dest != ins.R0)
+						Console.WriteLine ($"\tmovq %{ins.R0.V2S().ToLower ()}, %{ins.Dest.V2S().ToLower ()}");
+					break;
+				case Ops.IConst: {
+					var str = ins.Const0.ToString ("X");
+					Console.WriteLine ($"\tmov $0x{str}, %{ins.Dest.V2S().ToLower ()}");
+					break;
+				} case Ops.Ble:
+					Console.WriteLine ($"\tcmp %{ins.R0.V2S().ToLower ()}, %{ins.R1.V2S().ToLower ()}");
+					Console.WriteLine ($"\tjle $BB{ins.CallInfos[0].Target.Number}");
+					break;
+				case Ops.Br:
+					if (ins.CallInfos[0].Target != bb.NextInOrder)
+						Console.WriteLine ($"\tjmp $BB{ins.CallInfos[0].Target.Number}");
+					break;
+				case Ops.Add:
+					if (ins.Dest != ins.R0)
+						throw new Exception ("Bad binop encoding!");
+					Console.WriteLine ($"\taddl %{ins.Dest.V2S().ToLower ()}, %{ins.R1.V2S().ToLower ()}");
+					break;
+				case Ops.SetRet:
+					break;
+				default:
+					throw new Exception ($"Can't code gen {ins}");
+				}
+			}
+		}
+
+		//hardcoded epilogue
+		Console.WriteLine ("\tleave");
+		Console.WriteLine ("\tretq");
+
+	}
 	public void Run () {
 		/*
 		Compilation pipeline:
@@ -1003,6 +1137,7 @@ public class Compiler {
 		RegAlloc ();
 
 		//step 6, codegen
+		CodeGen ();
 	}
 }
 
