@@ -44,17 +44,37 @@ namespace SimpleJit.Compiler {
 
 	/*
 	arg regs RDI RSI RDX RCX R8 R9
-	callee regs RAX RCX RDX RSI RDI R9 R10 - I.E. scratch regs
+	caller saved regs RAX RCX RDX RSI RDI R8 R9 R10 - I.E. scratch regs
 	callee saved regs RBX R12 R13 R14 R15 RBP - I.E. calls don't clobber, but must be saved on prologue
 	*/
 	public class CallConv {
-		static Register[] args = new Register[] {
+		public static readonly Register[] args = new Register[] {
 			Register.RDI,
 			Register.RSI,
 			Register.RDX,
 			Register.RCX,
 			Register.R8,
 			Register.R9,
+		};
+
+		public static readonly Register[] caller_saved = new Register[] {
+			Register.RAX,
+			Register.RCX,
+			Register.RDX,
+			Register.RSI,
+			Register.RDI,
+			Register.R8,
+			Register.R9,
+			Register.R10,
+		};
+
+		public static readonly Register[] callee_saved = new Register[] {
+			Register.RBX,
+			Register.R12,
+			Register.R13,
+			Register.R14,
+			Register.R15,
+			// Register.RBP, // we never omit the frame pointer
 		};
 
 		public static Register RegForArg (int arg) {
@@ -124,8 +144,9 @@ namespace SimpleJit.Compiler {
 		Register[] varToReg;
 		int[] regToVar;
 		BasicBlock bb;
-		
-		public RegAllocState (BasicBlock bb) {
+		SortedSet<Register> callee_saved;
+
+		public RegAllocState (BasicBlock bb, SortedSet<Register> callee_saved) {
 			varToReg = new Register [bb.MaxReg ()];
 			for (int i = 0; i < varToReg.Length; ++i)
 				varToReg [i] = Register.None;
@@ -133,6 +154,7 @@ namespace SimpleJit.Compiler {
 			for (int i = 0; i < (int)Register.RegCount; ++i)
 				regToVar [i] = -1;
 			this.bb = bb;
+			this.callee_saved = callee_saved;
 		}
 
 		void Assign (int var, Register reg) {
@@ -143,16 +165,21 @@ namespace SimpleJit.Compiler {
 		Register FindReg () {
 			// var s = string.Join (",", regToVar.Select (v => v.ToString ()));
 			// Console.WriteLine ($"find reg: ({s})");
-
-			for (int i = 0; i < regToVar.Length; ++i) {
-				//Silly hack around not using masks
-				if (i == (int)Register.RSP || i == (int)Register.RBP)
-					continue;
-				if (regToVar [i] == -1) {
-					// Console.WriteLine ("Found {0}/{1}", i, (Register)i);
-					return (Register)i;
+			for (int i = 0; i < CallConv.caller_saved.Length; ++i) {
+				Register candidate = CallConv.caller_saved [i];
+				if (regToVar [(int)candidate] == -1) {
+					return candidate;
 				}
 			}
+
+			for (int i = 0; i < CallConv.callee_saved.Length; ++i) {
+				Register candidate = CallConv.callee_saved [i];
+				if (regToVar [(int)candidate] == -1) {
+					callee_saved.Add (candidate);
+					return candidate;
+				}
+			}
+
 			return Register.None;
 		}
 
@@ -1000,9 +1027,11 @@ public class Compiler {
 		}
 	}
 
+	SortedSet<Register> callee_saved = new SortedSet<Register> ();
+
 	void RegAlloc (BasicBlock bb) {
 		Console.WriteLine ("Allocating BB{0}", bb.Number);
-		var ra = new RegAllocState (bb);
+		var ra = new RegAllocState (bb, callee_saved);
 
 		for (Ins ins = bb.LastIns; ins != null; ins = ins.Prev) {
 			Console.WriteLine ($"Before {ins.ToString ()}");
@@ -1035,7 +1064,7 @@ public class Compiler {
 			Console.WriteLine ($"After {ins.ToString ()}\n\t{ra.State}");
 		}
 		ra.Finish ();
-		Console.WriteLine ("AFTER RA:\n{0}", bb);
+		// Console.WriteLine ("AFTER RA:\n{0}", bb);
 	}
 
 	/*
@@ -1138,6 +1167,16 @@ public class Compiler {
 		Console.WriteLine ("\tpushq %rbp");
 		Console.WriteLine ("\tmovq %rsp, %rbp");
 
+		//Emit save
+		if (callee_saved.Count > 0) {
+			Console.WriteLine ($"\tsubq 0x${callee_saved.Count * 8:X}, %rsp");
+			int idx = 8;
+			foreach (var reg in callee_saved) {
+				Console.WriteLine ($"\tmovq ${reg.ToString ().ToLower ()}, -0x{idx:X}(%rbp)");
+				idx += 8;
+			}
+		}
+
 		for (var bb = first_bb; bb != null; bb = bb.NextInOrder) {
 			Console.WriteLine ($"BB{bb.Number}:");
 
@@ -1176,6 +1215,16 @@ public class Compiler {
 		}
 
 		//hardcoded epilogue
+
+		//Emit restore
+		if (callee_saved.Count > 0) {
+			int idx = 8;
+			foreach (var reg in callee_saved) {
+				Console.WriteLine ($"\tmovq -0x{idx:X}(%rbp), ${reg.ToString ().ToLower ()}");
+				idx += 8;
+			}
+		}
+
 		Console.WriteLine ("\tleave");
 		Console.WriteLine ("\tretq");
 
