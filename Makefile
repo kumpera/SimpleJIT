@@ -8,8 +8,10 @@ FILES = src/SimpleJit.X86/Assembler.cs \
 		src/SimpleJit.Cil/MetadataTableGenerated.cs	\
 		src/SimpleJit.Cil/OpcodesTableGenerated.cs \
 		src/SimpleJit.Cil/Image.cs	\
+		src/SimpleJit.Metadata/ClrType.cs	\
 		src/SimpleJit.Metadata/MethodData.cs	\
 		src/SimpleJit.Metadata/MethodBody.cs	\
+		src/SimpleJit.Metadata/Signature.cs	\
 		src/SimpleJit.Compiler/Compiler.cs	\
 		src/External/DataConverter.cs
 

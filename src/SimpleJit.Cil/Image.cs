@@ -119,6 +119,9 @@ public partial class Image {
 		return new MethodData (this, idx);
 	}
 
+	public Signature LoadSignature (int idx) {
+		return new Signature (this, idx);
+	}
 
 	public MethodBody LoadMethodBody (int rva) {
 		return new MethodBody (this, RvaToOffset (rva));
@@ -294,6 +297,12 @@ public partial class Image {
 		fixed (byte *ptr = &data[(int)index + stream.offset]) {
 			return new String ((sbyte*)ptr);
 		}
+	}
+
+	internal int GetBlobIndex (int index)
+	{
+		var stream = GetStream ("#Blob");
+		return stream.offset + index;
 	}
 
 	void ReadTables () {

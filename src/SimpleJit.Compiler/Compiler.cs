@@ -712,7 +712,8 @@ public class Compiler {
 		BasicBlock current;
 		//First to last we compute income regs due unknown uses
 
-		epilogue.InVars.Add (0);//XXX check signatune to see if there's a return value
+		if (method.Signature.ReturnType != ClrType.Void)
+			epilogue.InVars.Add (0);
 
 		for (current = first_bb; current != null; current = current.NextInOrder) {
 			Console.WriteLine ($"processing {current}");
@@ -979,7 +980,8 @@ public class Compiler {
 				done = true;
 				break;
 			case Opcode.Ret:
-				varTable [0] = s.StoreVar ();//XXX check signatune to see if there's a return value
+				if (method.Signature.ReturnType != ClrType.Void)
+					varTable [0] = s.StoreVar ();
 				s.EmitBranch (new CallInfo (varTable, bb.To [0]));
 				if (it.HasNext)
 					throw new Exception ("Ret MUST be last op in a BB");
@@ -1078,7 +1080,8 @@ public class Compiler {
 		if (first_bb.From.Count > 0)
 			throw new Exception ("The first BB MUST NOT have predecessors");
 
-		for (int i = 1; i >= 0; --i) {
+		int var_count = this.method.Signature.ParamCount;
+		for (int i = var_count - 1; i >= 0; --i) {
 			first_bb.Prepend (
 				new Ins (Ops.LoadArg) {
 					Dest = i,
@@ -1086,9 +1089,11 @@ public class Compiler {
 				});
 		}
 
-		epilogue.Append (new Ins (Ops.SetRet) {
-			R0 = 0
-		});
+		if (method.Signature.ReturnType != ClrType.Void) {
+			epilogue.Append (new Ins (Ops.SetRet) {
+				R0 = 0
+			});
+		}
 
 		var list = new List<BasicBlock> (); //FIXME use a queue collection
 
@@ -1125,6 +1130,7 @@ public class Compiler {
 		default: throw new Exception ($"Not a branch op {op}");
 		}
 	}
+
 	void CodeGen () {
 		Console.WriteLine ("--- CODEGEN");
 

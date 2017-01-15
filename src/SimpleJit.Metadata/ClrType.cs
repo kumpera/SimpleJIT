@@ -30,40 +30,30 @@ using SimpleJit.CIL;
 
 namespace SimpleJit.Metadata {
 
-public class MethodData {
-	Image image;
-	int rva;
-	int implFlags, flags;
-	string name;
-	Signature signature;
-
-	public MethodData (Image image, int index) {
-		var row = new MethodDefRow ();
-		row.Read (image, index);
-		this.image = image;
-		this.rva = (int)row.rva;
-		this.implFlags = row.implFlags;
-		this.flags = row.flags;
-		this.name = image.DecodeString (row.name);
-		this.signature = image.LoadSignature ((int)row.signature);
-		// this.paramList = image.ReadParamList (row.ParamList);
-	}
-
-	public string Name {
-		get { return name; }
-	}
-
-	public override string ToString () {
-		return $"method-def {this.name} implFlags: {this.implFlags:X} flags: {this.flags:X} sig: {this.signature}";
-	}
-
-	public MethodBody GetBody () {
-		return image.LoadMethodBody (rva);
-	}
-
-	public Signature Signature {
-		get { return signature; }
-	}
+public enum ElementType {
+	Void = 0x01,
+	Int32 = 0x08,
+	CMOD_REQD = 0x1f,
+	CMOD_OPT = 0x20,
 }
 
+public abstract class ClrType {
+	public virtual ElementType ElementType { get; }
+
+	public static readonly ClrType Void = new PrimitiveType (ElementType.Void);
+	public static readonly ClrType Int32 = new PrimitiveType (ElementType.Int32);
+}
+
+public class PrimitiveType : ClrType {
+	ElementType type;
+	internal PrimitiveType (ElementType type) {
+		this.type = type;
+	}
+
+	public override ElementType ElementType { get { return type; } }
+
+	public override string ToString () {
+		return type.ToString ();
+	}
+}
 }
