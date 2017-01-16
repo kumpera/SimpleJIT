@@ -38,6 +38,17 @@ The use of LoadArg sucks as it is the same reg shuffling problem of repairing an
 	-If we support external allocation of BB::InVars (as a way to handle LCOV), this becomes a common case
 
 
+TODO:
+	implement cprop, dce and isel as part of the front-end
+	spilling
+	calls
+	2 pass alloc (forward pass for prefs, backward pass for alloc)
+	n-var repairing
+	critical edges
+	valuetypes
+	byref
+	floating point
+	more ops
 
 */
 namespace SimpleJit.Compiler {
@@ -66,6 +77,7 @@ namespace SimpleJit.Compiler {
 			Register.R8,
 			Register.R9,
 			Register.R10,
+			//Register.R11 //Not including it for now as mono doesn't.
 		};
 
 		public static readonly Register[] callee_saved = new Register[] {
@@ -163,8 +175,8 @@ namespace SimpleJit.Compiler {
 		}
 
 		Register FindReg () {
-			// var s = string.Join (",", regToVar.Select (v => v.ToString ()));
-			// Console.WriteLine ($"find reg: ({s})");
+			var s = string.Join (",", regToVar.Select ((reg,idx) => $"{(Register)idx} -> {reg}"));
+			Console.WriteLine ($"find reg: ({s})");
 			for (int i = 0; i < CallConv.caller_saved.Length; ++i) {
 				Register candidate = CallConv.caller_saved [i];
 				if (regToVar [(int)candidate] == -1) {
@@ -285,7 +297,6 @@ namespace SimpleJit.Compiler {
 				ins.Dest = MaskReg (varToReg [dest]);
 				ins.R0 = MaskReg (reg);
 			}
-			// throw new Exception ("whatevs");
 		}
 
 		void CallInfo (CallInfo info) {
@@ -762,6 +773,12 @@ public class Compiler {
 				case Opcode.Stloc2:
 					AddDef (current.InVars, current.DefVars, 3);
 					break;
+				case Opcode.Stloc3:
+					AddDef (current.InVars, current.DefVars, 4);
+					break;
+				case Opcode.StlocS:
+					AddDef (current.InVars, current.DefVars, 1 + it.DecodeParamI ());
+					break;
 				case Opcode.Ldloc0:
 					AddUse (current.InVars, current.DefVars, 1);
 					break;
@@ -771,6 +788,12 @@ public class Compiler {
 				case Opcode.Ldloc2:
 					AddUse (current.InVars, current.DefVars, 3);
 					break;
+				case Opcode.Ldloc3:
+					AddUse (current.InVars, current.DefVars, 4);
+					break;
+				case Opcode.LdlocS:
+					AddUse (current.InVars, current.DefVars, 1 + it.DecodeParamI ());
+					break;
 				case Opcode.StargS:
 					AddDef (current.InVars, current.DefVars, -1 - it.DecodeParamI ());
 					break;
@@ -779,6 +802,12 @@ public class Compiler {
 					break;
 				case Opcode.Ldarg1:
 					AddUse (current.InVars, current.DefVars, -2);
+					break;
+				case Opcode.Ldarg2:
+					AddUse (current.InVars, current.DefVars, -3);
+					break;
+				case Opcode.Ldarg3:
+					AddUse (current.InVars, current.DefVars, -4);
 					break;
 				case Opcode.Ret:
 					AddDef (current.InVars, current.DefVars, 0);
@@ -957,6 +986,12 @@ public class Compiler {
 			case Opcode.LdcI4_3:
 				s.PushInt (3);
 				break;
+			case Opcode.LdcI4_4:
+				s.PushInt (4);
+				break;
+			case Opcode.LdcI4_5:
+				s.PushInt (5);
+				break;
 			case Opcode.LdcI4S:
 				s.PushInt (it.DecodeParamI ());
 				break;
@@ -969,6 +1004,12 @@ public class Compiler {
 			case Opcode.Stloc2:
 				varTable [3] = s.StoreVar ();
 				break;
+			case Opcode.Stloc3:
+				varTable [4] = s.StoreVar ();
+				break;
+			case Opcode.StlocS:
+				varTable [1 + it.DecodeParamI ()] = s.StoreVar ();
+				break;
 			case Opcode.Ldloc0:
 				s.LoadVar (varTable [1]);
 				break;
@@ -978,12 +1019,28 @@ public class Compiler {
 			case Opcode.Ldloc2:
 				s.LoadVar (varTable [3]);
 				break;
+			case Opcode.Ldloc3:
+				s.LoadVar (varTable [4]);
+				break;
+			case Opcode.LdlocS:
+				s.LoadVar (varTable [1 + it.DecodeParamI ()]);
+				break;
 			case Opcode.Ldarg0:
 				s.LoadVar (varTable [-1]);
 				break;
 			case Opcode.Ldarg1:
 				s.LoadVar (varTable [-2]);
 				break;
+			case Opcode.Ldarg2:
+				s.LoadVar (varTable [-3]);
+				break;
+			case Opcode.Ldarg3:
+				s.LoadVar (varTable [-4]);
+				break;
+			case Opcode.StargS:
+				varTable [-1 - it.DecodeParamI ()] = s.StoreVar ();
+				break;
+
 			case Opcode.Blt:
 			case Opcode.Ble:
 				Console.WriteLine ("varTable before cond:");
