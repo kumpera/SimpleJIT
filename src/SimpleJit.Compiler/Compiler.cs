@@ -439,6 +439,7 @@ namespace SimpleJit.Compiler {
 		}
 
 		bool[] spillSlots;
+		int spillSlotMax = -1;
 		int AllocSpillSlot (int pref) {
 			if (spillSlots == null)
 				spillSlots = new bool [16];
@@ -448,6 +449,7 @@ namespace SimpleJit.Compiler {
 					Array.Resize (ref spillSlots, spillSlots.Length * 2);
 				if (!spillSlots [pref]) {
 					spillSlots [pref] = true;
+					spillSlotMax = Math.Max (spillSlotMax, pref);
 					return pref;
 				}
 			}
@@ -457,10 +459,12 @@ namespace SimpleJit.Compiler {
 				if (spillSlots [i])
 					continue;
 				spillSlots [i] = true;
+				spillSlotMax = Math.Max (spillSlotMax, i);
 				return i;
 			}
 			Array.Resize (ref spillSlots, len * 2);
 			spillSlots [len] = true;
+			spillSlotMax = Math.Max (spillSlotMax, len);
 			return len;
 		}
 
@@ -750,7 +754,7 @@ namespace SimpleJit.Compiler {
 			EmitRepairCode2 (bb, repairing);
 		}
 
-		public void Finish () {
+		public int Finish () {
 			bb.InVarState = new List<VarState> ();
 			for (int i = 0; i < bb.InVars.Count; ++i) {
 				var vs = varState [i];
@@ -772,8 +776,10 @@ namespace SimpleJit.Compiler {
 					}
 				}
 			}
-
+			//Returns the number of spill slots used. spillSlotMax 0 means we used 1 slot
+			return spillSlotMax + 1;
 		}
+
 		public string State {
 			get {
 				string s = "";
@@ -1478,6 +1484,7 @@ public class Compiler {
 	}
 
 	SortedSet<Register> callee_saved = new SortedSet<Register> ();
+	int spillAreaUsed = 0;
 
 	void RegAlloc (BasicBlock bb) {
 		Console.WriteLine ("Allocating BB{0}", bb.Number);
@@ -1513,7 +1520,7 @@ public class Compiler {
 			}
 			Console.WriteLine ($"After {ins.ToString ()}\n\t{ra.State}");
 		}
-		ra.Finish ();
+		spillAreaUsed= Math.Max (spillAreaUsed, ra.Finish ());
 		// DumpBB ("AFTER RA OF BB"+bb.Number);
 		// Console.WriteLine ("AFTER RA:\n{0}", bb);
 	}
@@ -1619,13 +1626,16 @@ public class Compiler {
 		Console.WriteLine ("\tmovq %rsp, %rbp");
 
 		//Emit save
-		if (callee_saved.Count > 0) {
-			Console.WriteLine ($"\tsubq 0x${callee_saved.Count * 8:X}, %rsp");
+		int stack_space = (callee_saved.Count + spillAreaUsed) * 8;
+		int spillOffset = 8;
+		if (stack_space > 0) {
+			Console.WriteLine ($"\tsubq 0x${stack_space:X}, %rsp");
 			int idx = 8;
 			foreach (var reg in callee_saved) {
 				Console.WriteLine ($"\tmovq ${reg.ToString ().ToLower ()}, -0x{idx:X}(%rbp)");
 				idx += 8;
 			}
+			spillOffset = idx;
 		}
 
 		for (var bb = first_bb; bb != null; bb = bb.NextInOrder) {
@@ -1658,7 +1668,18 @@ public class Compiler {
 					Console.WriteLine ($"\taddl %{ins.Dest.V2S().ToLower ()}, %{ins.R1.V2S().ToLower ()}");
 					break;
 				case Ops.SetRet:
+				case Ops.Nop:
 					break;
+				case Ops.SpillVar: {
+					int offset = spillOffset + ins.Const0 * 8;
+					Console.WriteLine ($"\tmovq ${ins.R0.V2S().ToLower ()}, -0x{(offset):X}(%rbp)");
+					break;
+				}
+				case Ops.FillVar: {
+					int offset = spillOffset + ins.Const0 * 8;
+					Console.WriteLine ($"\tmovq -0x{offset:X}(%rbp), ${ins.Dest.V2S().ToString ().ToLower ()}");
+					break;
+				}
 				default:
 					throw new Exception ($"Can't code gen {ins}");
 				}
