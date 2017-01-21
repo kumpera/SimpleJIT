@@ -187,6 +187,16 @@ namespace SimpleJit.Compiler {
 			this.spillSlot = spillSlot;
 		}
 
+		internal bool Eq (VarState vs) {
+			if (IsReg && IsSpill)
+				throw new Exception ("Can't handle a var state with reg & spill");
+			if (IsReg && reg == vs.reg)
+				return true;
+			if (IsSpill && spillSlot == vs.spillSlot)
+				return true;
+			return false;
+		}
+
 		public override string ToString () {
 			if (reg != Register.None)
 				return $"(VS {reg})";
@@ -596,7 +606,7 @@ namespace SimpleJit.Compiler {
 		void SetCallInfoResult (CallInfo info) {
 			info.AllocResult = new List<VarState> ();
 			
-			if (info.Target.InVarsAlloc == null) {
+			if (info.Target.InVarState == null) {
 				info.Target.NeedRepairing = true;
 				info.NeedRepairing = true;
 				for (int i = 0; i < info.Args.Count; ++i)
@@ -605,11 +615,11 @@ namespace SimpleJit.Compiler {
 				var repairing = new List<Tuple<VarState, VarState>> ();
 				for (int i = 0; i < info.Args.Count; ++i) {
 					info.AllocResult.Add (varState [info.Args [i]]);
-					//XXX info.Target.InVarsAlloc should be a varstate too
-					Register targetReg = info.Target.InVarsAlloc [i];
-					VarState thisVS = varState [info.Args [i]];
-					if (thisVS.reg != targetReg)
-						repairing.Add (Tuple.Create (new VarState (targetReg), thisVS));
+
+					var targetVS = info.Target.InVarState [i];
+					var thisVS = varState [info.Args [i]];
+					if (!thisVS.Eq (targetVS))
+						repairing.Add (Tuple.Create (targetVS, thisVS));
 				}
 				if (repairing.Count > 0)
 					EmitRepairCode2 (info.Target, repairing);
@@ -649,24 +659,22 @@ namespace SimpleJit.Compiler {
 				});
 			}
 
-			//XXX this doesn't work whent here's spilling
-			// for (int i = 0; i < bb.InVarsAlloc.Count; ++i) {
-			// 	if (bb.InVarsAlloc [i] == repairing [0].Item1) {
-			// 		bb.InVarsAlloc [i] = repairing [0].Item2;
-			// 		break;
-			// 	}
-			// }
+			for (int i = 0; i < bb.InVarState.Count; ++i) {
+				if (bb.InVarState [i].Eq (repairing [0].Item1)) {
+					bb.InVarState [i] = repairing [0].Item2;
+					break;
+				}
+			}
 		}
 
 		void CallInfo2 (CallInfo info, SortedSet<AllocRequest> reqs) {
-			if (info.Target.InVarsAlloc == null) { //This happens the loop tail-> loop head edge.
+			if (info.Target.InVarState == null) { //This happens the loop tail-> loop head edge.
 				for (int i = 0; i < info.Args.Count; ++i) {
 					reqs.Add (new AllocRequest (info.Args [i], true, null));
 				}
 			} else {
 				for (int i = 0; i < info.Args.Count; ++i) {
-					//XXX info.Target.InVarsAlloc should be a varstate too
-					reqs.Add (new AllocRequest (info.Args [i], true, new VarState (info.Target.InVarsAlloc [i])));
+					reqs.Add (new AllocRequest (info.Args [i], true, info.Target.InVarState [i]));
 				}
 			}
 		}
@@ -717,35 +725,6 @@ namespace SimpleJit.Compiler {
 			}
 		}
 
-		static void EmitRepairCode (BasicBlock bb, List<Tuple<Register,Register>> repairing) {
-			var table = String.Join (",", repairing.Select (t => $"{t.Item1} => {t.Item2}"));
-			Console.WriteLine ($"REPAIRING WITH {table}");
-			/*CI allocation only requires repairing when the current BB has multiple out edges
-			so we always repair on the target.
-			We can only repair on the target if it has a single incomming BB.
-			What this mean is that we might need to remove a critical-edge at this point. TBD
-			*/
-
-			if (bb.From.Count > 1)
-				throw new Exception ("Can't handle critical edges yet");
-
-			if (repairing.Count > 1)
-				throw new Exception ("Need to figure out how to compute repair optimal swapping");
-
-			//One var repair
-			bb.Prepend (new Ins (Ops.Mov) {
-				Dest = MaskReg (repairing [0].Item1),
-				R0 = MaskReg (repairing [0].Item2)
-			});
-
-			for (int i = 0; i < bb.InVarsAlloc.Count; ++i) {
-				if (bb.InVarsAlloc [i] == repairing [0].Item1) {
-					bb.InVarsAlloc [i] = repairing [0].Item2;
-					break;
-				}
-			}
-		}
-
 		void Use (int var, Register preference, List<Tuple<Register,Register>> repairing) {
 			// Console.WriteLine ($"*Use ${var} pref ${preference}");
 			if (regToVar [(int)preference] == -1) {
@@ -760,28 +739,24 @@ namespace SimpleJit.Compiler {
 			Console.WriteLine ($"REPAIRING THE LINK BB{from.Number} to BB{bb.Number}");
 
 			info.NeedRepairing = false;
-			var repairing = new List<Tuple<Register,Register>> ();
+			var repairing = new List<Tuple<VarState, VarState>> ();
 			for (int i = 0; i < info.Args.Count; ++i) {
-				Register source = info.Args [i].UnmaskReg ();
-				if (bb.InVarsAlloc [i] != source)
-					repairing.Add (Tuple.Create (source, bb.InVarsAlloc [i]));
+				// Register source = info.Args [i].UnmaskReg ();
+				var source = info.AllocResult [i];
+
+				if (!bb.InVarState [i].Eq (source))
+					repairing.Add (Tuple.Create (source, bb.InVarState [i]));
 			}
-			EmitRepairCode (bb, repairing);
+			EmitRepairCode2 (bb, repairing);
 		}
 
 		public void Finish () {
-			bb.InVarsAlloc = new List<Register> ();
+			bb.InVarState = new List<VarState> ();
 			for (int i = 0; i < bb.InVars.Count; ++i) {
 				var vs = varState [i];
-
 				if (!vs.IsLive)
 					throw new Exception ($"Bad REGALLOC didn't allocate vreg {i}!");
-
-				if (vs.IsSpill)
-					throw new Exception ("FIXME InVarsAlloc don't support spills :()");
-
-				Register reg = vs.reg;
-				bb.InVarsAlloc.Add (reg);
+				bb.InVarState.Add (vs);
 			}
 
 			if (bb.NeedRepairing) {
@@ -921,7 +896,7 @@ public class BasicBlock {
 
 	internal ISet<int> InVars = new SortedSet<int> ();
 	internal ISet<int> DefVars = new HashSet<int> ();
-	public List<Register> InVarsAlloc { get; set; }
+	public List<VarState> InVarState { get; set; }
 
 	Ins first, last;
 	int reg;
@@ -981,8 +956,8 @@ public class BasicBlock {
 			}
 		}
 		string ra = "";
-		if (InVarsAlloc != null) {
-			var regset = string.Join (",", InVarsAlloc.Select (r => r.ToString ()));
+		if (InVarState != null) {
+			var regset = string.Join (",", InVarState.Select (r => r.ToString ()));
 			ra = $" RA ({regset})";
 		}
 		return $"BB ({Number}) [0x{Start:X} - 0x{End:X}] FROM ({fromStr}) TO ({toStr}) IN-VARS ({inVars}) DEFS ({defVars}){ra}{body}";
@@ -1538,8 +1513,8 @@ public class Compiler {
 			}
 			Console.WriteLine ($"After {ins.ToString ()}\n\t{ra.State}");
 		}
-		DumpBB ("AFTER RA OF BB"+bb.Number);
 		ra.Finish ();
+		// DumpBB ("AFTER RA OF BB"+bb.Number);
 		// Console.WriteLine ("AFTER RA:\n{0}", bb);
 	}
 
