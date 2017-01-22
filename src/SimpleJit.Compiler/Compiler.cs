@@ -71,8 +71,11 @@ namespace SimpleJit.Compiler {
 		IConst,
 		Mov,
 		Add,
+		Cmp,
 		Ble,
 		Blt,
+		Bg,
+		Bge,
 		Br,
 		//Pseudo ops used by reg alloc
 		LoadArg,
@@ -80,7 +83,11 @@ namespace SimpleJit.Compiler {
 		SpillConst,
 		FillVar,
 		SetRet,
-		Nop
+		Nop,
+
+		//Early ISEL ops
+		AddI,
+		CmpI
 	}
 
 	public class CallInfo {
@@ -152,7 +159,9 @@ namespace SimpleJit.Compiler {
 				return $"{Op} {DStr} <= {R0Str}";
 			case Ops.Ble:
 			case Ops.Blt:
-				return $"{Op} {R0Str} {R1Str} {CallInfos[0]} {CallInfos[1]}";
+			case Ops.Bg:
+			case Ops.Bge:
+				return $"{Op} {CallInfos[0]} {CallInfos[1]}";
 			case Ops.Br:
 				return $"{Op} {CallInfos[0]}";
 			case Ops.LoadArg:
@@ -163,6 +172,12 @@ namespace SimpleJit.Compiler {
 				return $"Nop";
 			case Ops.Add:
 				return $"{Op} {DStr} <= {R0Str} {R1Str}";
+			case Ops.AddI:
+				return $"{Op} {DStr} <= {R0Str} {Const0}";
+			case Ops.Cmp:
+				return $"{Op} {R0Str} {R1Str}";
+			case Ops.CmpI:
+				return $"{Op} {R0Str} {Const0}";
 			case Ops.FillVar:
 				return $"{Op} {DStr} <= [{Const0}]";
 			case Ops.SpillVar:
