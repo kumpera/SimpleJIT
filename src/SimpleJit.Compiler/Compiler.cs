@@ -40,7 +40,7 @@ The use of LoadArg sucks as it is the same reg shuffling problem of repairing an
 
 TODO:
 	implement cprop, dce and isel as part of the front-end
-	spilling
+	spilling //basic done, lots of corner cases left TBH
 	calls
 	2 pass alloc (forward pass for prefs, backward pass for alloc)
 	n-var repairing
@@ -115,6 +115,14 @@ namespace SimpleJit.Compiler {
 	internal static class RegisterExtensions {
 		internal static bool Valid (this Register reg) {
 			return reg != Register.None && reg != Register.Dead;
+		}
+
+		internal static bool IsCalleeSaved (this Register reg) {
+			for (int i = 0; i < CallConv.callee_saved.Length; ++i) {
+				if (CallConv.callee_saved [i] == reg)
+					return true;
+			}
+			return false;
 		}
 	}
 
@@ -234,11 +242,19 @@ namespace SimpleJit.Compiler {
 			varState [var].reg = reg;
 		}
 
-		void Assign2 (int var, Register reg, HashSet<Register> inUse) {
+		VarState Assign2 (int var, Register reg, HashSet<Register> inUse) {
+			if (reg.IsCalleeSaved ()) {
+				callee_saved.Add (reg);
+				Console.WriteLine ($"\tpicked callee saved {reg}");
+			} else {
+				Console.WriteLine ($"\tpicked caller saved {reg}");
+			}
+
 			regToVar [(int)reg] = var;
 			varState [var].reg = reg;
 			if (inUse != null)
 				inUse.Add (reg);
+			return new VarState (reg);
 		}
 
 		void Assign3 (int vreg, VarState vs) {
@@ -311,7 +327,7 @@ namespace SimpleJit.Compiler {
 				ins.Dest = Conv2 (vreg);				
 				regToVar [(int)vs.reg] = -1;
 			} else {
-				throw new Exception ("DUNNO THIS");
+				// throw new Exception ("DUNNO THIS");
 				ins.Op = Ops.SpillConst;
 				ins.Const1 = vs.spillSlot;
 			}
@@ -472,36 +488,41 @@ namespace SimpleJit.Compiler {
 			spillSlots [slot] = false;
 		}
 
-		void ForceSpill (AllocRequest ar) {
-			Console.WriteLine ($"spilling {ar}");
+		VarState ForceSpill (AllocRequest ar) {
+			Console.WriteLine ($"\tspilling {ar}");
 			int slot = AllocSpillSlot (ar.preferred != null ? ar.preferred.Value.spillSlot : -1);
 			ar.SetResult (new VarState (slot));
 
-			varState [ar.vreg] = new VarState (slot);
+			var res = new VarState (slot);
+			varState [ar.vreg] = res;
+			return res;
 		}
 
-		Register FindOrSpill (int vreg, HashSet<Register> inUse, ref Ins spillIns) {
+		VarState FindOrSpill (AllocRequest ar, HashSet<Register> inUse, ref Ins spillIns) {
 			var s = string.Join (",", regToVar.Where (reg => reg != -1).Select ((reg,idx) => $"{(Register)idx} -> {reg}"));
 			var iu = string.Join (",", inUse.Select (r => r.ToString ()));
 			Console.WriteLine ($"FindOrSpill R2V ({s}) inUse ({iu})");
 
+			int vreg = ar.vreg;
+
+			if (ar.preferred != null) {
+				var pref = ar.preferred.Value;
+				if (pref.IsReg && regToVar [(int)pref.reg] == -1)
+					return Assign2 (vreg, pref.reg, inUse);
+				if (ar.canSpill && pref.IsSpill)
+					return ForceSpill (ar);
+			}
+
 			for (int i = 0; i < CallConv.caller_saved.Length; ++i) {
 				Register candidate = CallConv.caller_saved [i];
-				if (regToVar [(int)candidate] == -1) {
-					Assign2 (vreg, candidate, inUse);
-					Console.WriteLine ($"\tpicked caller saved {candidate}");
-					return candidate;
-				}
+				if (regToVar [(int)candidate] == -1)
+					return Assign2 (vreg, candidate, inUse);
 			}
 
 			for (int i = 0; i < CallConv.callee_saved.Length; ++i) {
 				Register candidate = CallConv.callee_saved [i];
-				if (regToVar [(int)candidate] == -1) {
-					callee_saved.Add (candidate);
-					Assign2 (vreg, candidate, inUse);
-					Console.WriteLine ($"\tpicked callee saved {candidate}");
-					return candidate;
-				}
+				if (regToVar [(int)candidate] == -1)
+					return Assign2 (vreg, candidate, inUse);
 			}
 			Console.WriteLine ($"find reg: spilling! ({s})");
 			int spillVreg = -1, regularVreg = -1;
@@ -529,7 +550,7 @@ namespace SimpleJit.Compiler {
 				varState [spillVreg].reg = Register.None;
 				Assign2 (vreg, reg, inUse);
 				Console.WriteLine ($"\tpicked spillVreg vreg {spillVreg} reg {reg}");
-				return reg;
+				return new VarState (reg);
 			}
 
 			if (regularVreg != -1) {
@@ -544,7 +565,7 @@ namespace SimpleJit.Compiler {
 				spillIns = ins;
 				Assign2 (vreg, reg, inUse);
 				Console.WriteLine ($"\tpicked regularVreg vreg {regularVreg} reg {reg}");
-				return reg;
+				return new VarState (reg);
 			}
 
 			throw new Exception ("FindOrSpill failed");
@@ -578,10 +599,10 @@ namespace SimpleJit.Compiler {
 			foreach (var ar in reqs) {
 				if (ar.Done)
 					continue;
-				var reg = FindOrSpill (ar.vreg, inUse, ref spillIns);
-				if (reg == Register.None)
+				var res = FindOrSpill (ar, inUse, ref spillIns);
+				if (!res.IsLive)
 					throw new Exception ("Could neither alloc or spill, WTF");
-				ar.SetResult (new VarState (reg));
+				ar.SetResult (res);
 			}
 
 			Console.WriteLine ("alloc result:");
@@ -881,6 +902,8 @@ namespace SimpleJit.Compiler {
 				return $"{Op} {DStr} <= [{Const0}]";
 			case Ops.SpillVar:
 				return $"{Op} [{Const0}] <= {R0Str}";
+			case Ops.SpillConst:
+				return $"{Op} [{Const0}] <= {Const1}";
 			default:
 				return $"{Op} {DStr} <= {R0Str} {R1Str} #FIXME";
 			}
