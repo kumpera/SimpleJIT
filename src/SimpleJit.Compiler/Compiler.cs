@@ -806,6 +806,7 @@ public class Compiler {
 		//step 2, emit BBs in reverse order
 		EmitBasicBlockBodies ();
 
+		return;
 		//step 3, optimizations (TODO)
 
 		//step 4, insel, scheduling

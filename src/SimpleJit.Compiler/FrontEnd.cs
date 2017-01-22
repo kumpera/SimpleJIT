@@ -6,9 +6,25 @@ using System.Linq;
 
 namespace SimpleJit.Compiler {
 
+enum StackValueType {
+	Int,
+	Variable
+}
+internal struct StackValue {
+	StackValueType type;
+	int value; //Int -> constant, Variable -> var number
+
+	internal static StackValue Int (int v) {
+		return new StackValue () {
+			type = StackValueType.Int,
+			value = v
+		};
+	}
+}
 
 internal class EvalStack  {
 	Stack <Ins> stack = new Stack <Ins> ();
+	Stack <StackValue> stack2 = new Stack <StackValue> ();
 	BasicBlock bb;
 
 	public EvalStack (BasicBlock bb) {
@@ -30,7 +46,6 @@ internal class EvalStack  {
 		}
 	}
 
-
 	public void PushInt (int c) {
 		Console.WriteLine ("PushInt {0}", c);
 
@@ -40,7 +55,10 @@ internal class EvalStack  {
 		};
 		stack.Push (i);
 		bb.Append (i);
+
+		// stack2.Push (StackValue.Int (c));
 	}
+
 
 	public int StoreVar () {
 		Console.WriteLine ("StoreVar");
@@ -102,8 +120,6 @@ internal class EvalStack  {
 	}
 }
 
-
-
 public class FrontEndTranslator {
 	MethodData method;
 	BasicBlock bb;
@@ -132,69 +148,46 @@ public class FrontEndTranslator {
 			case Opcode.Add:
 				s.PushBinOp (it.Opcode);
 				break;
+
 			case Opcode.LdcI4_0:
-				s.PushInt (0);
-				break;
 			case Opcode.LdcI4_1:
-				s.PushInt (1);
-				break;
 			case Opcode.LdcI4_2:
-				s.PushInt (2);
-				break;
 			case Opcode.LdcI4_3:
-				s.PushInt (3);
-				break;
 			case Opcode.LdcI4_4:
-				s.PushInt (4);
-				break;
 			case Opcode.LdcI4_5:
-				s.PushInt (5);
+				s.PushInt ((int)it.Opcode - (int)Opcode.LdcI4_0);
 				break;
 			case Opcode.LdcI4S:
 				s.PushInt (it.DecodeParamI ());
 				break;
+
 			case Opcode.Stloc0:
-				varTable [1] = s.StoreVar ();
-				break;
 			case Opcode.Stloc1:
-				varTable [2] = s.StoreVar ();
-				break;
 			case Opcode.Stloc2:
-				varTable [3] = s.StoreVar ();
-				break;
 			case Opcode.Stloc3:
-				varTable [4] = s.StoreVar ();
+				varTable [1 + ((int)it.Opcode - (int)Opcode.Stloc0)] = s.StoreVar ();
 				break;
 			case Opcode.StlocS:
 				varTable [1 + it.DecodeParamI ()] = s.StoreVar ();
 				break;
+
 			case Opcode.Ldloc0:
-				s.LoadVar (varTable [1]);
-				break;
 			case Opcode.Ldloc1:
-				s.LoadVar (varTable [2]);
-				break;
 			case Opcode.Ldloc2:
-				s.LoadVar (varTable [3]);
-				break;
 			case Opcode.Ldloc3:
-				s.LoadVar (varTable [4]);
+				s.LoadVar (varTable [1 + ((int)it.Opcode - (int)Opcode.Ldloc0)]);
 				break;
 			case Opcode.LdlocS:
 				s.LoadVar (varTable [1 + it.DecodeParamI ()]);
 				break;
+
 			case Opcode.Ldarg0:
-				s.LoadVar (varTable [-1]);
-				break;
 			case Opcode.Ldarg1:
-				s.LoadVar (varTable [-2]);
-				break;
 			case Opcode.Ldarg2:
-				s.LoadVar (varTable [-3]);
-				break;
 			case Opcode.Ldarg3:
-				s.LoadVar (varTable [-4]);
+				s.LoadVar (varTable [-1 - ((int)it.Opcode - (int)Opcode.Ldarg0)]);
 				break;
+
 			case Opcode.StargS:
 				varTable [-1 - it.DecodeParamI ()] = s.StoreVar ();
 				break;
@@ -214,6 +207,7 @@ public class FrontEndTranslator {
 					throw new Exception ("Branch MUST be last op in a BB");
 				done = true;
 				break;
+
 			case Opcode.Br:
 				Console.WriteLine ($"BB TO LEN {bb.To.Count}");
 				s.EmitBranch (new CallInfo (varTable, bb.To [0]));
@@ -221,6 +215,7 @@ public class FrontEndTranslator {
 					throw new Exception ("Branch MUST be last op in a BB");
 				done = true;
 				break;
+
 			case Opcode.Ret:
 				if (method.Signature.ReturnType != ClrType.Void)
 					varTable [0] = s.StoreVar ();
