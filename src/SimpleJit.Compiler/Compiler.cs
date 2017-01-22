@@ -73,9 +73,9 @@ namespace SimpleJit.Compiler {
 		public static readonly Register[] caller_saved = new Register[] {
 			Register.RAX,
 			Register.RCX,
-			// Register.RDX,
-			// Register.RSI,
-			// Register.RDI,
+			Register.RDX,
+			Register.RSI,
+			Register.RDI,
 			// Register.R8,
 			// Register.R9,
 			// Register.R10,
@@ -788,7 +788,8 @@ namespace SimpleJit.Compiler {
 				if (!bb.InVarState [i].Eq (source))
 					repairing.Add (Tuple.Create (bb.InVarState [i], source));
 			}
-			EmitRepairCode2 (bb, repairing);
+			if (repairing.Count > 0)
+				EmitRepairCode2 (bb, repairing);
 		}
 
 		public int Finish () {
