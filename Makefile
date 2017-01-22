@@ -13,6 +13,7 @@ FILES = src/SimpleJit.X86/Assembler.cs \
 		src/SimpleJit.Metadata/MethodBody.cs	\
 		src/SimpleJit.Metadata/Signature.cs	\
 		src/SimpleJit.Compiler/Compiler.cs	\
+		src/SimpleJit.Compiler/RegisterAllocator.cs	\
 		src/External/DataConverter.cs
 
 TEST_FILES = test/SimpleJit.X86/RegisterTest.cs \
