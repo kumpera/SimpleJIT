@@ -76,18 +76,18 @@ namespace SimpleJit.Compiler {
 			Register.RDX,
 			Register.RSI,
 			Register.RDI,
-			// Register.R8,
-			// Register.R9,
-			// Register.R10,
-			//Register.R11 //Not including it for now as mono doesn't.
+			Register.R8,
+			Register.R9,
+			Register.R10,
+			Register.R11 //Not including it for now as mono doesn't.
 		};
 
 		public static readonly Register[] callee_saved = new Register[] {
-			// Register.RBX,
-			// Register.R12,
-			// Register.R13,
-			// Register.R14,
-			// Register.R15,
+			Register.RBX,
+			Register.R12,
+			Register.R13,
+			Register.R14,
+			Register.R15,
 			// Register.RBP, // we never omit the frame pointer
 		};
 
