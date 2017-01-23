@@ -593,9 +593,17 @@ public class Compiler {
 			case Ops.Add:
 				ra.BinOp (ins, ins.Dest, ins.R0, ins.R1);
 				break;
+			case Ops.AddI:
+				ra.UnOp (ins, ins.Dest, ins.R0);
+				break;
 			case Ops.Ble:
 			case Ops.Blt:
-				ra.CondBranch (ins, ins.R0, ins.R1, ins.CallInfos);
+			case Ops.Bg:
+			case Ops.Bge:
+				ra.CondBranch (ins, ins.CallInfos);
+				break;
+			case Ops.CmpI:
+				ra.CmpI (ins, ins.R0);
 				break;
 			case Ops.Br:
 				ra.DirectBranch (ins, ins.CallInfos);
@@ -821,7 +829,6 @@ public class Compiler {
 		//step 2, emit BBs in reverse order
 		EmitBasicBlockBodies ();
 
-		return;
 		//step 3, optimizations (TODO)
 
 		//step 4, insel, scheduling
@@ -830,7 +837,7 @@ public class Compiler {
 		RegAlloc ();
 
 		//step 6, codegen
-		CodeGen ();
+		// CodeGen ();
 	}
 }
 

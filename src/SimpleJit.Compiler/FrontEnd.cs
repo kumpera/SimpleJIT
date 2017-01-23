@@ -142,7 +142,7 @@ internal class EvalStack {
 		} else {
 			int nextReg = bb.NextReg ();
 			bb.Append (new Ins (Ops.Add) {
-				Dest = bb.NextReg (),
+				Dest = nextReg,
 				R0 = r0.value,
 				R1 = r1.value
 			});
