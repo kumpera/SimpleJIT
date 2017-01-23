@@ -216,7 +216,6 @@ class RegAllocState {
 			ins.Dest = Conv2 (vreg);				
 			regToVar [(int)vs.reg] = -1;
 		} else {
-			// throw new Exception ("DUNNO THIS");
 			ins.Op = Ops.SpillConst;
 			ins.Const1 = vs.spillSlot;
 		}
@@ -326,18 +325,14 @@ class RegAllocState {
 		var inUse = new HashSet<Register> ();
 		SortedSet<AllocRequest> reqs = new SortedSet<AllocRequest> ();
 
-		//something must use $dest
 		if (!vsDest.IsLive)
 			throw new Exception ($"Dead var or bug? dest: {vsDest}");
 
-		//if $dest is spilled, we need to generate a spill 
 		if (vsDest.IsSpill)
 			reqs.Add (new AllocRequest (dest));
 		else
 			inUse.Add (vsDest.reg);
 
-		//Binop follows x86 rules of r0 getting clobbered.
-		//if vsR0 is not live, we assign it to whatever dest gets
 		if (vsR0.IsLive && vsR0.IsReg)
 			inUse.Add (vsR0.reg);
 
@@ -505,7 +500,6 @@ class RegAllocState {
 	}
 
 	VarState FindOrSpill (AllocRequest ar, HashSet<Register> inUse, ref Ins spillIns) {
-		// var s = string.Join (",", regToVar.Where (reg => reg != -1).Select ((reg,idx) => $"{(Register)idx} -> {reg}"));
 		string s = "";
 		for (int i = 0; i < varState.Length; ++i) {
 			var tmp = varState [i];
@@ -602,16 +596,10 @@ class RegAllocState {
 		for (int j = 0; j < infos.Length; ++j)
 			this.CallInfo2 (infos [j], reqs);
 
-		// reqs.Add (new AllocRequest (r0));
-		// reqs.Add (new AllocRequest (r1));
-
 		Ins spillIns = null;
 		DoAlloc (reqs, ref spillIns);
 		if (spillIns != null)
 			throw new Exception ("CondBranch can't handle spills");
-
-		// ins.R0 = Conv2 (r0);
-		// ins.R1 = Conv2 (r1);
 
 		for (int j = 0; j < infos.Length; ++j)
 			this.SetCallInfoResult (infos [j]);
@@ -743,7 +731,6 @@ class RegAllocState {
 				ins.R0 = MaskReg (reg);
 				ins.Const0 = vs.spillSlot;
 			}
-
 		}
 	}
 
@@ -753,7 +740,6 @@ class RegAllocState {
 		info.NeedRepairing = false;
 		var repairing = new List<Tuple<VarState, VarState>> ();
 		for (int i = 0; i < info.Args.Count; ++i) {
-			// Register source = info.Args [i].UnmaskReg ();
 			var source = info.AllocResult [i];
 
 			if (!bb.InVarState [i].Eq (source))
