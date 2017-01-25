@@ -204,8 +204,13 @@ class RegAllocState {
 	}
 
 	void KillVar2 (int vreg) {
-		if (varState [vreg].IsSpill)
+		Console.WriteLine ($"KILL {vreg}");
+
+		var vs = varState [vreg];
+		if (vs.IsSpill)
 			FreeSpillSlot (varState [vreg].spillSlot);
+		if (vs.IsReg && regToVar [(int)vs.reg] == vreg)
+			regToVar [(int)vs.reg] = -1;
 		varState [vreg] = new VarState (Register.None);
 	}
 	
@@ -308,11 +313,15 @@ class RegAllocState {
 
 		if (!vsR0.IsLive)
 			Assign3 (r0, varState [dest]);
-		else
-			throw new Exception ("R0 needs extra care as it outlives the binop");
+		else {
+			ins.Prepend (new Ins (Ops.Mov) {
+				Dest = MaskReg (varState [dest].reg),
+				R0 = MaskReg (vsR0.reg),
+			});
+		}
 
 		ins.Dest = Conv2 (dest);
-		ins.R0 = Conv2 (r0);
+		ins.R0 = Conv2 (dest);
 		ins.R1 = Conv2 (r1);
 
 		KillVar2 (dest);
@@ -343,11 +352,15 @@ class RegAllocState {
 
 		if (!vsR0.IsLive)
 			Assign3 (r0, varState [dest]);
-		else
-			throw new Exception ("R0 needs extra care as it outlives the binop");
+		else {
+			ins.Prepend (new Ins (Ops.Mov) {
+				Dest = MaskReg (varState [dest].reg),
+				R0 = MaskReg (vsR0.reg),
+			});
+		}
 
 		ins.Dest = Conv2 (dest);
-		ins.R0 = Conv2 (r0);
+		ins.R0 = Conv2 (dest);
 
 		KillVar2 (dest);
 	}
@@ -720,7 +733,7 @@ class RegAllocState {
 		if (!vs.IsReg || vs.reg != reg) {
 			Console.WriteLine ($"Need to fixup income reg. I want {reg} but have {vs}");
 			if (regToVar [(int)reg] >= 0)
-				throw new Exception ($"the var we want is fucked {regToVar [(int)reg]}");
+				throw new Exception ($"the var we want is fucked {regToVar [(int)reg]} {reg}");
 
 			if (vs.IsReg) {
 				ins.Op = Ops.Mov;

@@ -212,20 +212,25 @@ internal class EvalStack {
 public class FrontEndTranslator {
 	MethodData method;
 	BasicBlock bb;
+	int localOffset;
 
 	public FrontEndTranslator (MethodData method, BasicBlock bb) {
 		this.method = method;
 		this.bb = bb;
+		localOffset = 1 + method.Signature.ParamCount;
+	}
+
+	int LocalToDic (int local) {
+		return localOffset + local;
+	}
+
+	int ArgToDic (int arg) {
+		return 1 + arg;
 	}
 	
 	public void Translate () {
 		Console.WriteLine ("Emitting body of BB{0}", bb.Number);
 		var varTable = new Dictionary <int, int> ();
-		// Console.WriteLine ("initial var map:");
-		// foreach (var v in bb.InVars) {
-		// 	varTable [v] = bb.NextReg ();
-		// 	Console.WriteLine ($"\t{v} == {varTable [v]}");
-		// }
 
 		var it = bb.GetILIterator ();
 		var s = new EvalStack (bb);
@@ -254,59 +259,43 @@ public class FrontEndTranslator {
 			case Opcode.Stloc1:
 			case Opcode.Stloc2:
 			case Opcode.Stloc3:
-				s.StoreVar (1 + ((int)it.Opcode - (int)Opcode.Stloc0));
-				// varTable [1 + ((int)it.Opcode - (int)Opcode.Stloc0)] = s.StoreVar ();
+				s.StoreVar (LocalToDic((int)it.Opcode - (int)Opcode.Stloc0));
 				break;
 			case Opcode.StlocS:
-				s.StoreVar (1 + it.DecodeParamI ());
-				// varTable [1 + it.DecodeParamI ()] = s.StoreVar ();
+				s.StoreVar (LocalToDic (it.DecodeParamI ()));
 				break;
 
 			case Opcode.Ldloc0:
 			case Opcode.Ldloc1:
 			case Opcode.Ldloc2:
 			case Opcode.Ldloc3:
-				// s.LoadVar (varTable [1 + ((int)it.Opcode - (int)Opcode.Ldloc0)]);
-				s.LoadVar (1 + ((int)it.Opcode - (int)Opcode.Ldloc0));
+			s.LoadVar (LocalToDic ((int)it.Opcode - (int)Opcode.Ldloc0));
 				break;
 			case Opcode.LdlocS:
-				// s.LoadVar (varTable [1 + it.DecodeParamI ()]);
-				s.LoadVar (1 + it.DecodeParamI ());
+			s.LoadVar (LocalToDic (it.DecodeParamI ()));
 				break;
 
 			case Opcode.Ldarg0:
 			case Opcode.Ldarg1:
 			case Opcode.Ldarg2:
 			case Opcode.Ldarg3:
-				//s.LoadVar (varTable [-1 - ((int)it.Opcode - (int)Opcode.Ldarg0)]);
-				s.LoadVar (-1 - ((int)it.Opcode - (int)Opcode.Ldarg0));
+			s.LoadVar (ArgToDic ((int)it.Opcode - (int)Opcode.Ldarg0));
 				break;
 
 			case Opcode.StargS:
 				// varTable [-1 - it.DecodeParamI ()] = s.StoreVar ();
-				s.StoreVar (-1 - it.DecodeParamI ());
+				s.StoreVar (ArgToDic (it.DecodeParamI ()));
 				break;
 
 			case Opcode.Blt:
 			case Opcode.Ble:
-				// Console.WriteLine ("varTable before cond:");
-				// foreach (var kv in varTable)
-				// 	Console.WriteLine ($"\t{kv.Key} -> {kv.Value}");
-
-				// var infos = new CallInfo [2];
-				// infos [0] = new CallInfo (varTable, bb.To [0]);
-				// infos [1] = new CallInfo (varTable, bb.To [1]);
-
-				// s.EmitCondBranch (it.Opcode, infos);
-				s.EmitCondBranch (it.Opcode, bb.To [0], bb.To [1]);
+			s.EmitCondBranch (it.Opcode, bb.To [0], bb.To [1]);
 				if (it.HasNext)
 					throw new Exception ("Branch MUST be last op in a BB");
 				done = true;
 				break;
 
 			case Opcode.Br:
-				Console.WriteLine ($"BB TO LEN {bb.To.Count}");
-				// s.EmitBranch (new CallInfo (varTable, bb.To [0]));
 				s.EmitBranch (bb.To [0]);
 				if (it.HasNext)
 					throw new Exception ("Branch MUST be last op in a BB");
@@ -316,8 +305,6 @@ public class FrontEndTranslator {
 			case Opcode.Ret:
 				if (method.Signature.ReturnType != ClrType.Void)
 					s.StoreVar (0);
-					// varTable [0] = s.StoreVar ();
-				//s.EmitBranch (new CallInfo (varTable, bb.To [0]));
 				s.EmitBranch (bb.To [0]);
 				if (it.HasNext)
 					throw new Exception ("Ret MUST be last op in a BB");
@@ -332,7 +319,6 @@ public class FrontEndTranslator {
 			if (bb.To.Count > 1)
 				throw new Exception ("Can't fall through to multiple blocks");
 			if (bb.To.Count == 1)
-				// s.EmitBranch (new CallInfo (varTable, bb.To [0]));
 				s.EmitBranch (bb.To [0]);
 		}
 	}

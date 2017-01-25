@@ -208,6 +208,17 @@ namespace SimpleJit.Compiler {
 			i.Prev = this;
 			this.Next = i;
 		}
+		public void Prepend (Ins i) {
+			if (i.Prev != null)
+				throw new Exception ("TODO multi op prepend");
+			if (this.Prev != null) {
+				this.Prev.Next = i;
+				i.Prev = this.Prev;
+			}
+
+			i.Next = this;
+			this.Prev = i;
+		}
 	}
 
 public class BasicBlock {
@@ -461,6 +472,14 @@ public class Compiler {
 		defs.Add (var);
 	}
 
+	int LocalToDic (int local) {
+		return 1 + method.Signature.ParamCount + local;
+	}
+
+	int ArgToDic (int arg) {
+		return 1 + arg;
+	}
+
 	void EmitBasicBlockBodies () {
 		var list = new List<BasicBlock> (); //FIXME use a queue collection
 
@@ -480,50 +499,34 @@ public class Compiler {
 				Console.WriteLine ("\t[{0}]:{1}", it.Index, it.Mnemonic);
 				switch (it.Opcode) {
 				case Opcode.Stloc0:
-					AddDef (current.InVars, current.DefVars, 1);
-					break;
 				case Opcode.Stloc1:
-					AddDef (current.InVars, current.DefVars, 2);
-					break;
 				case Opcode.Stloc2:
-					AddDef (current.InVars, current.DefVars, 3);
-					break;
 				case Opcode.Stloc3:
-					AddDef (current.InVars, current.DefVars, 4);
+					AddDef (current.InVars, current.DefVars, LocalToDic((int)it.Opcode - (int)Opcode.Stloc0));
 					break;
 				case Opcode.StlocS:
-					AddDef (current.InVars, current.DefVars, 1 + it.DecodeParamI ());
+					AddDef (current.InVars, current.DefVars, LocalToDic (it.DecodeParamI ()));
 					break;
 				case Opcode.Ldloc0:
-					AddUse (current.InVars, current.DefVars, 1);
-					break;
 				case Opcode.Ldloc1:
-					AddUse (current.InVars, current.DefVars, 2);
-					break;
 				case Opcode.Ldloc2:
-					AddUse (current.InVars, current.DefVars, 3);
-					break;
 				case Opcode.Ldloc3:
-					AddUse (current.InVars, current.DefVars, 4);
+					AddUse (current.InVars, current.DefVars, LocalToDic ((int)it.Opcode - (int)Opcode.Ldloc0));
 					break;
 				case Opcode.LdlocS:
-					AddUse (current.InVars, current.DefVars, 1 + it.DecodeParamI ());
+					AddUse (current.InVars, current.DefVars, LocalToDic (it.DecodeParamI ()));
+					break;
+
+				case Opcode.Ldarg0:
+				case Opcode.Ldarg1:
+				case Opcode.Ldarg2:
+				case Opcode.Ldarg3:
+					AddUse (current.InVars, current.DefVars, ArgToDic ((int)it.Opcode - (int)Opcode.Ldarg0));
 					break;
 				case Opcode.StargS:
-					AddDef (current.InVars, current.DefVars, -1 - it.DecodeParamI ());
+					AddDef (current.InVars, current.DefVars, ArgToDic (it.DecodeParamI ()));
 					break;
-				case Opcode.Ldarg0:
-					AddUse (current.InVars, current.DefVars, -1);
-					break;
-				case Opcode.Ldarg1:
-					AddUse (current.InVars, current.DefVars, -2);
-					break;
-				case Opcode.Ldarg2:
-					AddUse (current.InVars, current.DefVars, -3);
-					break;
-				case Opcode.Ldarg3:
-					AddUse (current.InVars, current.DefVars, -4);
-					break;
+
 				case Opcode.Ret:
 					AddDef (current.InVars, current.DefVars, 0);
 					break;
@@ -581,9 +584,9 @@ public class Compiler {
 	void RegAlloc (BasicBlock bb) {
 		Console.WriteLine ("Allocating BB{0}", bb.Number);
 		var ra = new RegAllocState (bb, callee_saved);
-
-		for (Ins ins = bb.LastIns; ins != null; ins = ins.Prev) {
+		for (Ins ins = bb.LastIns, prev = null; ins != null; ins = prev) {
 			Console.WriteLine ($"Before {ins.ToString ()}");
+			prev = ins.Prev;
 			switch (ins.Op) {
 			case Ops.IConst:
 				ra.Def (ins, ins.Dest);
