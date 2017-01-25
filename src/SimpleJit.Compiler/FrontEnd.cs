@@ -175,11 +175,11 @@ internal class EvalStack {
 			if (r0.IsConst) {
 				c = r0.value;
 				vreg = r1.value;
-				branchOp = CilToCondOp (cond);
+				branchOp = InvertCond (CilToCondOp (cond));
 			} else {
 				c = r1.value;
 				vreg = r0.value;
-				branchOp = InvertCond (CilToCondOp (cond));
+				branchOp = CilToCondOp (cond);
 			}
 			bb.Append (new Ins (Ops.CmpI) {
 				R0 = vreg,

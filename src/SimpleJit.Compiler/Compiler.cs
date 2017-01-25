@@ -37,10 +37,11 @@ using System.Linq;
 The use of LoadArg sucks as it is the same reg shuffling problem of repairing and it doesn't allow for a global decision to be made.
 	-If we support external allocation of BB::InVars (as a way to handle LCOV), this becomes a common case
 
+DONE:
+	dump spill slots on RA state to ensure we're not ignoring them when handling CallInfos
 
 TODO:
-	dump spill slots on RA state to ensure we're not ignoring them when handling CallInfos
-	implement cprop, dce and isel as part of the front-end
+	implement cprop, dce and isel as part of the front-end -- done, ishy
 	spilling //basic done, lots of corner cases left TBH
 	calls
 	2 pass alloc (forward pass for prefs, backward pass for alloc)
@@ -712,6 +713,8 @@ public class Compiler {
 		switch (op) {
 		case Ops.Ble: return "jle";
 		case Ops.Blt: return "jl";
+		case Ops.Bg: return "jg";
+		case Ops.Bge: return "jge";
 		default: throw new Exception ($"Not a branch op {op}");
 		}
 	}
@@ -746,14 +749,19 @@ public class Compiler {
 						Console.WriteLine ($"\tmovq %{ins.R0.V2S().ToLower ()}, %{ins.Dest.V2S().ToLower ()}");
 					break;
 				case Ops.IConst: {
-					var str = ins.Const0.ToString ("X");
-					Console.WriteLine ($"\tmov $0x{str}, %{ins.Dest.V2S().ToLower ()}");
+					if (ins.Const0 == 0) {
+						Console.WriteLine ($"\txorl %{ins.Dest.V2S().ToLower ()}, %{ins.Dest.V2S().ToLower ()}");
+					} else {
+						var str = ins.Const0.ToString ("X");
+						Console.WriteLine ($"\tmovq $0x{str}, %{ins.Dest.V2S().ToLower ()}");
+					}
 					break;
 				}
 				case Ops.Ble:
-				case Ops.Blt: {
+				case Ops.Blt:
+				case Ops.Bg:
+				case Ops.Bge: {
 					var mi = BranchOpToJmp (ins.Op);
-					Console.WriteLine ($"\tcmp %{ins.R0.V2S().ToLower ()}, %{ins.R1.V2S().ToLower ()}");
 					Console.WriteLine ($"\t{mi} $BB{ins.CallInfos[0].Target.Number}");
 					break;
 				} case Ops.Br:
@@ -763,7 +771,15 @@ public class Compiler {
 				case Ops.Add:
 					if (ins.Dest != ins.R0)
 						throw new Exception ("Bad binop encoding!");
-					Console.WriteLine ($"\taddl %{ins.Dest.V2S().ToLower ()}, %{ins.R1.V2S().ToLower ()}");
+					Console.WriteLine ($"\taddl %{ins.R1.V2S().ToLower ()}, %{ins.Dest.V2S().ToLower ()}");
+					break;
+				case Ops.AddI:
+					if (ins.Dest != ins.R0)
+						throw new Exception ("Bad binop encoding!");
+					if (ins.Const0 == 1)
+						Console.WriteLine ($"\tincl %{ins.Dest.V2S().ToLower ()}");
+					else
+						Console.WriteLine ($"\taddl %{ins.Dest.V2S().ToLower ()}, $0x%{ins.Const0:X}");
 					break;
 				case Ops.SetRet:
 				case Ops.Nop:
@@ -782,6 +798,11 @@ public class Compiler {
 				case Ops.FillVar: {
 					int offset = spillOffset + ins.Const0 * 8;
 					Console.WriteLine ($"\tmovq -0x{offset:X}(%rbp), ${ins.Dest.V2S().ToString ().ToLower ()}");
+					break;
+				}
+				case Ops.CmpI: {
+					var str = ins.Const0.ToString ("X");
+					Console.WriteLine ($"\tcmpl 0x{str}, %{ins.R0.V2S().ToLower ()}");
 					break;
 				}
 				default:
@@ -837,7 +858,7 @@ public class Compiler {
 		RegAlloc ();
 
 		//step 6, codegen
-		// CodeGen ();
+		CodeGen ();
 	}
 }
 
