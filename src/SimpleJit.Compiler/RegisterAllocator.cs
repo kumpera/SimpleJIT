@@ -604,6 +604,32 @@ class RegAllocState {
 		ins.R0 = Conv2 (r0);
 	}
 
+	public void Cmp (Ins ins, int r0, int r1) {
+		var vsR0 = varState [r0];
+		var vsR1 = varState [r1];
+
+		SortedSet<AllocRequest> reqs = new SortedSet<AllocRequest> ();
+		var inUse = new HashSet<Register> ();
+
+		if (vsR0.IsLive && vsR0.IsReg)
+			inUse.Add (vsR0.reg);
+		else
+			reqs.Add (new AllocRequest (r0));
+
+		if (vsR1.IsLive && vsR1.IsReg)
+			inUse.Add (vsR1.reg);
+		else
+			reqs.Add (new AllocRequest (r1));
+
+		Ins spillIns = null;
+		DoAlloc (reqs, ref spillIns);
+		if (spillIns != null)
+			ins.Append (spillIns);
+
+		ins.R0 = Conv2 (r0);
+		ins.R1 = Conv2 (r1);
+	}
+
 	public void CondBranch (Ins ins, CallInfo[] infos) {
 		SortedSet<AllocRequest> reqs = new SortedSet<AllocRequest> ();
 		for (int j = 0; j < infos.Length; ++j)
@@ -642,8 +668,31 @@ class RegAllocState {
 		}
 	}
 
+	static void RepairPair (BasicBlock bb, Tuple<VarState, VarState> varPair) {
+		//One var repair
+		if (varPair.Item2.IsSpill) {
+			if (varPair.Item1.IsSpill)
+				throw new Exception ($"DONT KNOW HOW TO REPAIR mem2mem {varPair}");
+			bb.Prepend (new Ins (Ops.FillVar) {
+				Dest = MaskReg (varPair.Item1.reg),
+				Const0 = varPair.Item2.spillSlot
+			});
+		} else if (varPair.Item1.IsSpill) {
+			throw new Exception ($"DONT KNOW HOW TO REPAIR with SpillVar {varPair}");
+
+			bb.Prepend (new Ins (Ops.SpillVar) {
+				R0 = MaskReg (varPair.Item2.reg),
+				Const0 = varPair.Item1.spillSlot,
+			});
+		} else {
+			bb.Prepend (new Ins (Ops.Mov) {
+				Dest = MaskReg (varPair.Item1.reg),
+				R0 = MaskReg (varPair.Item2.reg)
+			});
+		}
+	}
 	static void EmitRepairCode2 (BasicBlock bb, List<Tuple<VarState, VarState>> repairing) {
-		var table = String.Join (",", repairing.Select (t => $"{t.Item1} => {t.Item2}"));
+		var table = String.Join (",", repairing.Select (t => $"{t.Item1} <= {t.Item2}"));
 		Console.WriteLine ($"REPAIRING BB{bb.Number} WITH {table}");
 		/*CI allocation only requires repairing when the current BB has multiple out edges
 		so we always repair on the target.
@@ -654,33 +703,45 @@ class RegAllocState {
 		if (bb.From.Count > 1)
 			throw new Exception ("Can't handle critical edges yet");
 
-		if (repairing.Count > 1)
-			throw new Exception ("Need to figure out how to compute repair optimal swapping");
 
-		//One var repair
-		if (repairing [0].Item2.IsSpill) {
-			if (repairing [0].Item1.IsSpill)
-				throw new Exception ($"DONT KNOW HOW TO REPAIR mem2mem {repairing [0]}");
-			bb.Prepend (new Ins (Ops.FillVar) {
-				Dest = MaskReg (repairing [0].Item1.reg),
-				Const0 = repairing [0].Item2.spillSlot
-			});
-		} else if (repairing [0].Item1.IsSpill) {
-			throw new Exception ($"DONT KNOW HOW TO REPAIR mem2mem {repairing [0]}");
-			bb.Prepend (new Ins (Ops.SpillVar) {
-				R0 = MaskReg (repairing [0].Item2.reg),
-				Const0 = repairing [0].Item1.spillSlot,
-			});
-		} else {
-			bb.Prepend (new Ins (Ops.Mov) {
-				Dest = MaskReg (repairing [0].Item1.reg),
-				R0 = MaskReg (repairing [0].Item2.reg)
-			});
+		var srcVS = new HashSet<VarState> ();
+		var dstVS = new HashSet<VarState> ();
+
+		foreach (var t in repairing) {
+			dstVS.Add (t.Item1);
+			srcVS.Add (t.Item2);
 		}
 
+		Console.WriteLine ("SRC: {0}", string.Join (",", srcVS));
+		Console.WriteLine ("DST: {0}", string.Join (",", dstVS));
+		//pick targets not in source
+
+		while (dstVS.Count > 0) {
+			Console.WriteLine ("**REPAIR ROUND");
+			var tmp = new HashSet<VarState> (dstVS);
+			tmp.ExceptWith (srcVS);
+			if (tmp.Count == 0)
+				throw new Exception ("CAN'T DO TRIVIAL REPAIR, NEED SWAPS");
+
+			foreach (var d in tmp) {
+				Console.WriteLine ($"\tdoing {d}");
+				dstVS.Remove (d);
+				for (int i = 0; i < repairing.Count; ++i) {
+					if (repairing [i].Item1.Eq (d)) {
+						srcVS.Remove (repairing [i].Item2);
+						RepairPair (bb, repairing [i]);
+						break;
+					}
+				}
+			}
+		}
+
+		if (dstVS.Count > 1)
+			throw new Exception ("Need to figure out how to compute repair optimal swapping");
+
 		for (int i = 0; i < bb.InVarState.Count; ++i) {
-			if (bb.InVarState [i].Eq (repairing [0].Item1)) {
-				bb.InVarState [i] = repairing [0].Item2;
+			if (bb.InVarState [i].Eq (repairing [i].Item1)) {
+				bb.InVarState [i] = repairing [i].Item2;
 				break;
 			}
 		}
@@ -726,25 +787,16 @@ class RegAllocState {
 		ins.R0 = Conv2 (vreg);
 	}
 
+	List<Tuple<VarState, VarState>> args_repairing = new List<Tuple<VarState, VarState>> ();
 	public void LoadArg (Ins ins, int dest, int position) {
 		Register reg = CallConv.RegForArg (position);
 		var vs = varState [dest];
 
 		if (!vs.IsReg || vs.reg != reg) {
 			Console.WriteLine ($"Need to fixup income reg. I want {reg} but have {vs}");
-			if (regToVar [(int)reg] >= 0)
-				throw new Exception ($"the var we want is fucked {regToVar [(int)reg]} {reg}");
-
-			if (vs.IsReg) {
-				ins.Op = Ops.Mov;
-				ins.Dest = MaskReg (vs.reg);
-				ins.R0 = MaskReg (reg);					
-			} else {
-				ins.Op = Ops.SpillVar;
-				ins.R0 = MaskReg (reg);
-				ins.Const0 = vs.spillSlot;
-			}
+			args_repairing.Add (Tuple.Create (vs, new VarState (reg)));
 		}
+		ins.Op = Ops.Nop;
 	}
 
 	void RepairInfo (BasicBlock bb, BasicBlock from, CallInfo info) {
@@ -771,6 +823,9 @@ class RegAllocState {
 			bb.InVarState.Add (vs);
 		}
 
+		if (args_repairing.Count > 0) {
+			EmitRepairCode2 (bb, args_repairing);
+		}
 		if (bb.NeedRepairing) {
 			Console.WriteLine ("DOING BB REPAIR ON FINISH BB{0}", bb.Number);
 			bb.NeedRepairing = false;

@@ -41,6 +41,7 @@ DONE:
 	dump spill slots on RA state to ensure we're not ignoring them when handling CallInfos
 
 TODO:
+	actual DCE, regalloc gets pissed off with dead dregs
 	implement cprop, dce and isel as part of the front-end -- done, ishy
 	spilling //basic done, lots of corner cases left TBH
 	calls
@@ -609,6 +610,9 @@ public class Compiler {
 			case Ops.CmpI:
 				ra.CmpI (ins, ins.R0);
 				break;
+			case Ops.Cmp:
+				ra.Cmp (ins, ins.R0, ins.R1);
+				break;
 			case Ops.Br:
 				ra.DirectBranch (ins, ins.CallInfos);
 				break;
@@ -806,6 +810,10 @@ public class Compiler {
 				case Ops.CmpI: {
 					var str = ins.Const0.ToString ("X");
 					Console.WriteLine ($"\tcmpl 0x{str}, %{ins.R0.V2S().ToLower ()}");
+					break;
+				}
+				case Ops.Cmp: {
+					Console.WriteLine ($"\tcmpl %{ins.R0.V2S().ToLower ()}, %{ins.R1.V2S().ToLower ()}");
 					break;
 				}
 				default:
