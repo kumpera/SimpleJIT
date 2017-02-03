@@ -39,14 +39,18 @@ The use of LoadArg sucks as it is the same reg shuffling problem of repairing an
 
 DONE:
 	dump spill slots on RA state to ensure we're not ignoring them when handling CallInfos
+	n-var repairing - done for trivial repair.
+	spilling //basic done, lots of corner cases left TBH
+	implement cprop, dce and isel as part of the front-end -- done, ishy, cprop and isel, no DCE
 
 TODO:
-	actual DCE, regalloc gets pissed off with dead dregs
-	implement cprop, dce and isel as part of the front-end -- done, ishy
-	spilling //basic done, lots of corner cases left TBH
 	calls
 	2 pass alloc (forward pass for prefs, backward pass for alloc)
-	n-var repairing
+	LVN in the front-end
+
+
+	DCE and x-block const prop
+	actual DCE, regalloc gets pissed off with dead dregs
 	critical edges
 	valuetypes
 	byref
