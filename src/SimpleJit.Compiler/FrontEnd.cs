@@ -207,6 +207,48 @@ internal class EvalStack {
 		};
 		bb.Append (i);
 	}
+
+	int PopVreg () {
+		var val = stack2.Pop ();
+		switch (val.type) {
+		case StackValueType.Int: {
+			int nextReg = bb.NextReg ();
+			bb.Append (new Ins (Ops.IConst) {
+				Dest = nextReg,
+				Const0 = val.value,
+			});
+			return nextReg;
+			break;
+		}
+		case StackValueType.Variable:
+			return val.value;
+			break;
+		default:
+			throw new Exception ($"Invalid stack type {val.type}");
+		}
+	}
+	public void EmitCall (MethodData md) {
+		var sig = md.Signature;
+		Ins ins;
+		if (sig.ReturnType != ClrType.Void) {
+			int nextReg = bb.NextReg ();
+			ins = new Ins (Ops.Call) {
+				Dest = nextReg
+			};
+		} else {
+			ins = new Ins (Ops.VoidCall);
+		}
+
+		ins.Method = md;
+		ins.CallVars = new int [sig.ParamCount];
+		for (int i = 0; i < sig.ParamCount; ++i) {
+			ins.CallVars [sig.ParamCount - (i + 1)] = PopVreg ();
+		}
+
+		bb.Append (ins);
+		if (sig.ReturnType != ClrType.Void)
+			stack2.Push (StackValue.Var (ins.Dest));
+	}
 }
 
 public class FrontEndTranslator {
@@ -279,17 +321,16 @@ public class FrontEndTranslator {
 			case Opcode.Ldarg1:
 			case Opcode.Ldarg2:
 			case Opcode.Ldarg3:
-			s.LoadVar (ArgToDic ((int)it.Opcode - (int)Opcode.Ldarg0));
+				s.LoadVar (ArgToDic ((int)it.Opcode - (int)Opcode.Ldarg0));
 				break;
 
 			case Opcode.StargS:
-				// varTable [-1 - it.DecodeParamI ()] = s.StoreVar ();
-				s.StoreVar (ArgToDic (it.DecodeParamI ()));
+			s.StoreVar (ArgToDic (it.DecodeParamI ()));
 				break;
 
 			case Opcode.Blt:
 			case Opcode.Ble:
-			s.EmitCondBranch (it.Opcode, bb.To [0], bb.To [1]);
+				s.EmitCondBranch (it.Opcode, bb.To [0], bb.To [1]);
 				if (it.HasNext)
 					throw new Exception ("Branch MUST be last op in a BB");
 				done = true;
@@ -309,6 +350,10 @@ public class FrontEndTranslator {
 				if (it.HasNext)
 					throw new Exception ("Ret MUST be last op in a BB");
 				done = true;
+				break;
+
+			case Opcode.Call:
+				s.EmitCall (method.Image.LoadMethodDefOrRef (it.DecodeParamI ()));
 				break;
 
 			default:

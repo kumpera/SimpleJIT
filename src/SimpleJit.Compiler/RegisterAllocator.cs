@@ -28,7 +28,7 @@ public class CallConv {
 		Register.R8,
 		Register.R9,
 		Register.R10,
-		Register.R11 //Not including it for now as mono doesn't.
+		//Register.R11 //Not including it for now as mono doesn't.
 	};
 
 	public static readonly Register[] callee_saved = new Register[] {
@@ -38,6 +38,11 @@ public class CallConv {
 		Register.R14,
 		Register.R15,
 		// Register.RBP, // we never omit the frame pointer
+	};
+
+	public static readonly Register[] ret = new Register[] {
+		Register.RAX,
+		Register.RDX,
 	};
 
 	public static Register RegForArg (int arg) {
@@ -801,6 +806,44 @@ class RegAllocState {
 			args_repairing.Add (Tuple.Create (vs, new VarState (reg)));
 		}
 		ins.Op = Ops.Nop;
+	}
+
+	public void Call (Ins ins, int dest, int[] argVars) {
+		var inUse = new HashSet<Register> ();
+
+		//handle return value
+		Register retReg = CallConv.ret [0];
+		if (regToVar [(int)retReg] == -1)
+			throw new Exception ($"need to emit copy to {retReg}");
+		if (regToVar [(int)retReg] != dest)
+			throw new Exception ($"need to deal with ret val {regToVar [(int)retReg]} -> {varState [regToVar [(int)retReg]]} and I need {retReg}");
+
+		ins.Dest = Conv (dest);
+		inUse.Add (retReg);
+
+		for (int i = 0; i < argVars.Length; ++i) {
+			var vs = varState [argVars [i]];
+			if (vs.IsLive)
+				throw new Exception ($"ARG {i} is live!");
+			Register aReg = CallConv.args [i];
+			if (regToVar [(int)aReg] != -1)
+				throw new Exception ($"Call reg not available {aReg}!");
+
+			AssignReg (argVars [i], aReg, null);
+			argVars [i] = Conv (argVars [i]);
+			inUse.Add (aReg);
+		}
+
+		for (int i = 0; i < CallConv.caller_saved.Length; ++i) {
+			var reg = CallConv.caller_saved [i];
+			if (inUse.Contains (reg))
+				continue;
+			if (regToVar [(int)reg] != -1)
+				throw new Exception ($"Need to spill {reg}");
+		}
+
+		KillVar (dest);
+		// throw new Exception ($"all good! {ins}");
 	}
 
 	public int Finish () {

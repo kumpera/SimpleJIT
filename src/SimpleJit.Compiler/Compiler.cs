@@ -93,7 +93,11 @@ namespace SimpleJit.Compiler {
 
 		//Early ISEL ops
 		AddI,
-		CmpI
+		CmpI,
+
+		//Call ops
+		Call,
+		VoidCall,
 	}
 
 	public class CallInfo {
@@ -134,7 +138,10 @@ namespace SimpleJit.Compiler {
 		public int R1 { get; set; }
 		public int Const0 { get; set; }
 		public int Const1 { get; set; }
-		public CallInfo[] CallInfos { get; set; }
+		public CallInfo[] CallInfos { get; set; } //branches
+		public int[] CallVars { get; set; } //calls
+		public MethodData Method {get; set; }//call target
+
 
 		public Ins Prev { get; private set; }
 		public Ins Next { get; private set; }
@@ -190,6 +197,14 @@ namespace SimpleJit.Compiler {
 				return $"{Op} [{Const0}] <= {R0Str}";
 			case Ops.SpillConst:
 				return $"{Op} [{Const1}] <= {Const0}";
+			case Ops.Call:
+			case Ops.VoidCall: {
+				string args = string.Join (",", CallVars.Select (_ => _.V2S ()));
+				if (Op == Ops.Call)
+					return $"{Op} {DStr} <= {Method.Name} ({args})";
+				else
+					return $"{Op} {Method.Name} ({args})";
+			}
 			default:
 				return $"{Op} {DStr} <= {R0Str} {R1Str} #FIXME";
 			}
@@ -626,6 +641,9 @@ public class Compiler {
 			case Ops.LoadArg:
 				ra.LoadArg (ins, ins.Dest, ins.Const0);
 				break;
+			case Ops.Call:
+				ra.Call (ins, ins.Dest, ins.CallVars);
+				break;
 			default:
 				throw new Exception ($"Don't now how to reg alloc {ins}");
 			}
@@ -818,6 +836,11 @@ public class Compiler {
 				}
 				case Ops.Cmp: {
 					Console.WriteLine ($"\tcmpl %{ins.R0.V2S().ToLower ()}, %{ins.R1.V2S().ToLower ()}");
+					break;
+				}
+				case Ops.Call: {
+					Console.WriteLine ($"\tmovabsq $0xLALALA, %r11");
+					Console.WriteLine ($"\tcallq *%r11");
 					break;
 				}
 				default:

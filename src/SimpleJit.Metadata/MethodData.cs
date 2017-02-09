@@ -61,9 +61,14 @@ public class MethodData {
 		return image.LoadMethodBody (rva);
 	}
 
+	public Image Image {
+		get { return image; }
+	}
+
 	public Signature Signature {
 		get { return signature; }
 	}
+
 }
 
 }
