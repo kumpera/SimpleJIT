@@ -135,6 +135,46 @@ public struct VarState {
 	}
 }
 
+public class AllocRequest : IComparable<AllocRequest> {
+	public int vreg;
+	public VarState? preferred;
+	public bool canSpill;
+	public VarState result;
+	bool done;
+
+	public AllocRequest (int vreg) {
+		this.vreg = vreg;
+		this.result = new VarState (Register.None);
+	}
+
+	public AllocRequest (int vreg, bool canSpill, VarState? preferred) {
+		this.vreg = vreg;
+		this.canSpill = canSpill;
+		this.preferred = preferred;
+		this.result = new VarState (Register.None);
+	}
+
+
+	public void SetResult (VarState vs) {
+		this.result = vs;
+		this.done = true;
+	}
+
+	public bool Done { get{ return done; } }
+
+	public int CompareTo (AllocRequest ar) {
+		return vreg - ar.vreg;
+	}
+
+	public override string ToString () {
+		if (preferred != null)
+			return $"AR {vreg} CanSpill {canSpill} pref {preferred} Result {result}";
+		else
+			return $"AR {vreg} CanSpill {canSpill} Result {result}";
+	}
+}
+
+
 class RegAllocState {
 	VarState[] varState;
 	int[] regToVar;
@@ -157,12 +197,7 @@ class RegAllocState {
 
 	//FIXME clean all this assign helpers
 
-	void Assign (int var, Register reg) {
-		regToVar [(int)reg] = var;
-		varState [var].reg = reg;
-	}
-
-	Register Assign2 (int var, Register reg, HashSet<Register> inUse) {
+	Register AssignReg (int var, Register reg, HashSet<Register> inUse) {
 		if (reg.IsCalleeSaved ()) {
 			callee_saved.Add (reg);
 			Console.WriteLine ($"\tpicked callee saved {reg}");
@@ -177,7 +212,7 @@ class RegAllocState {
 		return reg;
 	}
 
-	void Assign3 (int vreg, VarState vs) {
+	void AssignVS (int vreg, VarState vs) {
 		varState [vreg] = vs;
 		if (vs.IsReg)
 			regToVar [(int)vs.reg] = vreg;
@@ -188,13 +223,6 @@ class RegAllocState {
 	}
 
 	int Conv (int vreg) {
-		Register reg = varState [vreg].reg;
-		if (reg == Register.None || reg == Register.Dead)
-			throw new Exception ($"Can't assign bad reg to ins {reg}");
-		return MaskReg (reg);
-	}
-
-	int Conv2 (int vreg) {
 		if (!varState [vreg].IsReg)
 			throw new Exception ($"Cant conv unregistered vars! vreg {vreg} -> {varState [vreg]}");
 		Register reg = varState [vreg].reg;
@@ -203,7 +231,7 @@ class RegAllocState {
 		return MaskReg (reg);
 	}
 
-	void KillVar2 (int vreg) {
+	void KillVar (int vreg) {
 		Console.WriteLine ($"KILL {vreg}");
 
 		var vs = varState [vreg];
@@ -212,196 +240,6 @@ class RegAllocState {
 		if (vs.IsReg && regToVar [(int)vs.reg] == vreg)
 			regToVar [(int)vs.reg] = -1;
 		varState [vreg] = new VarState (Register.None);
-	}
-	
-	public void Def (Ins ins, int vreg) {
-		//This just kills the reg
-		var vs = varState [vreg];
-		if (vs.IsReg) {
-			ins.Dest = Conv2 (vreg);				
-			regToVar [(int)vs.reg] = -1;
-		} else {
-			ins.Op = Ops.SpillConst;
-			ins.Const1 = vs.spillSlot;
-		}
-
-		KillVar2 (vreg);
-	}
-
-
-	public void Move (Ins ins, int to, int from) {
-		var vsTo = varState [to];
-		var vsFrom = varState [from];
-		//this is a dead store, reduce the live range of from
-		if (!vsTo.IsLive) {
-			if (!vsFrom.IsLive) {
-				SortedSet<AllocRequest> reqs = new SortedSet<AllocRequest> ();
-				reqs.Add (new AllocRequest (from));
-				Ins spillIns = null;
-				DoAlloc (reqs, ref spillIns);
-				if (spillIns != null)
-					ins.Append (spillIns);
-			}
-
-			ins.Op = Ops.Nop;
-			return;
-		}
-
-		//If this is the last usage of from, we can treat this as a rename
-		if (!vsFrom.IsLive) {
-			Console.WriteLine ($"RENAMING {from} to {to}");
-			KillVar2 (to);
-			varState [from] = vsTo;
-			if (vsTo.IsReg)
-				regToVar [(int)vsTo.reg] = from;
-			if (vsTo.IsSpill)
-				spillSlots [vsTo.spillSlot] = true;
-			ins.Op = Ops.Nop;
-		} else {
-			if (vsFrom.IsReg && vsTo.IsReg) {
-				ins.Dest = Conv2 (to);
-				ins.R0 = Conv2 (from);
-			} else {
-				if (vsFrom.IsSpill && vsTo.IsSpill)
-					throw new Exception ("IMPLEMENT ME: mem2mem mov");
-				if (vsTo.IsSpill)
-					throw new Exception ($"IMPLEMENT ME: spilled mov {vsFrom.IsSpill} {vsTo.IsSpill}");
-				if (vsFrom.IsSpill && !vsFrom.IsReg) {
-					ins.Op = Ops.FillVar;
-					ins.Dest = Conv2 (to);
-					ins.Const0 = vsFrom.spillSlot;
-				} else {
-					throw new Exception ("NRIEjid");
-				}		
-			}
-			KillVar2 (to);
-		}
-	}
-
-	public void BinOp (Ins ins, int dest, int r0, int r1) {
-		var vsDest = varState [dest];
-		var vsR0 = varState [r0];
-		var vsR1 = varState [r1];
-
-		var inUse = new HashSet<Register> ();
-		SortedSet<AllocRequest> reqs = new SortedSet<AllocRequest> ();
-
-		//something must use $dest
-		if (!vsDest.IsLive)
-			throw new Exception ($"Dead var or bug? dest: {dest} {vsDest}");
-
-		//if $dest is spilled, we need to generate a spill 
-		if (vsDest.IsSpill)
-			reqs.Add (new AllocRequest (dest));
-		else
-			inUse.Add (vsDest.reg);
-
-		//Binop follows x86 rules of r0 getting clobbered.
-		//if vsR0 is not live, we assign it to whatever dest gets
-		if (vsR0.IsLive && vsR0.IsReg)
-			inUse.Add (vsR0.reg);
-
-		if (!vsR1.IsLive)
-			reqs.Add (new AllocRequest (r1));
-		else if (vsR1.IsReg)
-			inUse.Add (vsR1.reg);
-
-		Ins spillIns = null;
-		DoAlloc (reqs, ref spillIns, inUse);
-		if (spillIns != null)
-			ins.Append (spillIns);
-
-		if (!vsR0.IsLive)
-			Assign3 (r0, varState [dest]);
-		else {
-			ins.Prepend (new Ins (Ops.Mov) {
-				Dest = MaskReg (varState [dest].reg),
-				R0 = MaskReg (vsR0.reg),
-			});
-		}
-
-		ins.Dest = Conv2 (dest);
-		ins.R0 = Conv2 (dest);
-		ins.R1 = Conv2 (r1);
-
-		KillVar2 (dest);
-	}
-
-	public void UnOp (Ins ins, int dest, int r0) {
-		var vsDest = varState [dest];
-		var vsR0 = varState [r0];
-
-		var inUse = new HashSet<Register> ();
-		SortedSet<AllocRequest> reqs = new SortedSet<AllocRequest> ();
-
-		if (!vsDest.IsLive)
-			throw new Exception ($"Dead var or bug? dest: {vsDest}");
-
-		if (vsDest.IsSpill)
-			reqs.Add (new AllocRequest (dest));
-		else
-			inUse.Add (vsDest.reg);
-
-		if (vsR0.IsLive && vsR0.IsReg)
-			inUse.Add (vsR0.reg);
-
-		Ins spillIns = null;
-		DoAlloc (reqs, ref spillIns, inUse);
-		if (spillIns != null)
-			ins.Append (spillIns);
-
-		if (!vsR0.IsLive)
-			Assign3 (r0, varState [dest]);
-		else {
-			ins.Prepend (new Ins (Ops.Mov) {
-				Dest = MaskReg (varState [dest].reg),
-				R0 = MaskReg (vsR0.reg),
-			});
-		}
-
-		ins.Dest = Conv2 (dest);
-		ins.R0 = Conv2 (dest);
-
-		KillVar2 (dest);
-	}
-
-	public class AllocRequest : IComparable<AllocRequest> {
-		public int vreg;
-		public VarState? preferred;
-		public bool canSpill;
-		public VarState result;
-		bool done;
-
-		public AllocRequest (int vreg) {
-			this.vreg = vreg;
-			this.result = new VarState (Register.None);
-		}
-
-		public AllocRequest (int vreg, bool canSpill, VarState? preferred) {
-			this.vreg = vreg;
-			this.canSpill = canSpill;
-			this.preferred = preferred;
-			this.result = new VarState (Register.None);
-		}
-
-
-		public void SetResult (VarState vs) {
-			this.result = vs;
-			this.done = true;
-		}
-
-		public bool Done { get{ return done; } }
-
-		public int CompareTo (AllocRequest ar) {
-			return vreg - ar.vreg;
-		}
-
-		public override string ToString () {
-			if (preferred != null)
-				return $"AR {vreg} CanSpill {canSpill} pref {preferred} Result {result}";
-			else
-				return $"AR {vreg} CanSpill {canSpill} Result {result}";
-		}
 	}
 
 	bool[] spillSlots;
@@ -452,18 +290,18 @@ class RegAllocState {
 		int vreg = ar.vreg;
 
 		if (ar.preferred != null && ar.preferred.Value.IsReg && regToVar [(int)ar.preferred.Value.reg] == -1)
-			return Assign2 (vreg, ar.preferred.Value.reg, inUse);
+			return AssignReg (vreg, ar.preferred.Value.reg, inUse);
 
 		for (int i = 0; i < CallConv.caller_saved.Length; ++i) {
 			Register candidate = CallConv.caller_saved [i];
 			if (regToVar [(int)candidate] == -1)
-				return Assign2 (vreg, candidate, inUse);
+				return AssignReg (vreg, candidate, inUse);
 		}
 
 		for (int i = 0; i < CallConv.callee_saved.Length; ++i) {
 			Register candidate = CallConv.callee_saved [i];
 			if (regToVar [(int)candidate] == -1)
-				return Assign2 (vreg, candidate, inUse);
+				return AssignReg (vreg, candidate, inUse);
 		}
 		Console.WriteLine ($"\tfind reg: spilling!");
 		int spillVreg = -1, regularVreg = -1;
@@ -489,7 +327,7 @@ class RegAllocState {
 		if (spillVreg != -1) {
 			var reg = varState [spillVreg].reg;
 			varState [spillVreg].reg = Register.None;
-			Assign2 (vreg, reg, inUse);
+			AssignReg (vreg, reg, inUse);
 			Console.WriteLine ($"\tpicked spillVreg vreg {spillVreg} reg {reg}");
 			return reg;
 		}
@@ -504,7 +342,7 @@ class RegAllocState {
 			};
 			ins.SetNext (spillIns);
 			spillIns = ins;
-			Assign2 (vreg, reg, inUse);
+			AssignReg (vreg, reg, inUse);
 			Console.WriteLine ($"\tpicked regularVreg vreg {regularVreg} reg {reg} got slot {varState [regularVreg].spillSlot}");
 			return reg;
 		}
@@ -585,7 +423,157 @@ class RegAllocState {
 		Console.WriteLine ("alloc result:");
 		foreach (var r in reqs)
 			Console.WriteLine ($"\t{r}");
+	}
 
+	public void Def (Ins ins, int vreg) {
+		//This just kills the reg
+		var vs = varState [vreg];
+		if (vs.IsReg) {
+			ins.Dest = Conv (vreg);
+			regToVar [(int)vs.reg] = -1;
+		} else {
+			ins.Op = Ops.SpillConst;
+			ins.Const1 = vs.spillSlot;
+		}
+
+		KillVar (vreg);
+	}
+
+
+	public void Move (Ins ins, int to, int from) {
+		var vsTo = varState [to];
+		var vsFrom = varState [from];
+		//this is a dead store, reduce the live range of from
+		if (!vsTo.IsLive) {
+			if (!vsFrom.IsLive) {
+				SortedSet<AllocRequest> reqs = new SortedSet<AllocRequest> ();
+				reqs.Add (new AllocRequest (from));
+				Ins spillIns = null;
+				DoAlloc (reqs, ref spillIns);
+				if (spillIns != null)
+					ins.Append (spillIns);
+			}
+
+			ins.Op = Ops.Nop;
+			return;
+		}
+
+		//If this is the last usage of from, we can treat this as a rename
+		if (!vsFrom.IsLive) {
+			Console.WriteLine ($"RENAMING {from} to {to}");
+			KillVar (to);
+			varState [from] = vsTo;
+			if (vsTo.IsReg)
+				regToVar [(int)vsTo.reg] = from;
+			if (vsTo.IsSpill)
+				spillSlots [vsTo.spillSlot] = true;
+			ins.Op = Ops.Nop;
+		} else {
+			if (vsFrom.IsReg && vsTo.IsReg) {
+				ins.Dest = Conv (to);
+				ins.R0 = Conv (from);
+			} else {
+				if (vsFrom.IsSpill && vsTo.IsSpill)
+					throw new Exception ("IMPLEMENT ME: mem2mem mov");
+				if (vsTo.IsSpill)
+					throw new Exception ($"IMPLEMENT ME: spilled mov {vsFrom.IsSpill} {vsTo.IsSpill}");
+				if (vsFrom.IsSpill && !vsFrom.IsReg) {
+					ins.Op = Ops.FillVar;
+					ins.Dest = Conv (to);
+					ins.Const0 = vsFrom.spillSlot;
+				} else {
+					throw new Exception ("NRIEjid");
+				}
+			}
+			KillVar (to);
+		}
+	}
+
+	public void BinOp (Ins ins, int dest, int r0, int r1) {
+		var vsDest = varState [dest];
+		var vsR0 = varState [r0];
+		var vsR1 = varState [r1];
+
+		var inUse = new HashSet<Register> ();
+		SortedSet<AllocRequest> reqs = new SortedSet<AllocRequest> ();
+
+		//something must use $dest
+		if (!vsDest.IsLive)
+			throw new Exception ($"Dead var or bug? dest: {dest} {vsDest}");
+
+		//if $dest is spilled, we need to generate a spill 
+		if (vsDest.IsSpill)
+			reqs.Add (new AllocRequest (dest));
+		else
+			inUse.Add (vsDest.reg);
+
+		//Binop follows x86 rules of r0 getting clobbered.
+		//if vsR0 is not live, we assign it to whatever dest gets
+		if (vsR0.IsLive && vsR0.IsReg)
+			inUse.Add (vsR0.reg);
+
+		if (!vsR1.IsLive)
+			reqs.Add (new AllocRequest (r1));
+		else if (vsR1.IsReg)
+			inUse.Add (vsR1.reg);
+
+		Ins spillIns = null;
+		DoAlloc (reqs, ref spillIns, inUse);
+		if (spillIns != null)
+			ins.Append (spillIns);
+
+		if (!vsR0.IsLive)
+			AssignVS (r0, varState [dest]);
+		else {
+			ins.Prepend (new Ins (Ops.Mov) {
+				Dest = MaskReg (varState [dest].reg),
+				R0 = MaskReg (vsR0.reg),
+			});
+		}
+
+		ins.Dest = Conv (dest);
+		ins.R0 = Conv (dest);
+		ins.R1 = Conv (r1);
+
+		KillVar (dest);
+	}
+
+	public void UnOp (Ins ins, int dest, int r0) {
+		var vsDest = varState [dest];
+		var vsR0 = varState [r0];
+
+		var inUse = new HashSet<Register> ();
+		SortedSet<AllocRequest> reqs = new SortedSet<AllocRequest> ();
+
+		if (!vsDest.IsLive)
+			throw new Exception ($"Dead var or bug? dest: {vsDest}");
+
+		if (vsDest.IsSpill)
+			reqs.Add (new AllocRequest (dest));
+		else
+			inUse.Add (vsDest.reg);
+
+		if (vsR0.IsLive && vsR0.IsReg)
+			inUse.Add (vsR0.reg);
+
+		Ins spillIns = null;
+		DoAlloc (reqs, ref spillIns, inUse);
+		if (spillIns != null)
+			ins.Append (spillIns);
+
+		if (!vsR0.IsLive)
+			AssignVS (r0, varState [dest]);
+		else {
+			ins.Prepend (new Ins (Ops.Mov) {
+				Dest = MaskReg (varState [dest].reg),
+				R0 = MaskReg (vsR0.reg),
+			});
+		}
+
+		ins.Dest = Conv (dest);
+		ins.R0 = Conv (dest);
+
+		KillVar (dest);
 	}
 
 	public void CmpI (Ins ins, int r0) {
@@ -601,7 +589,7 @@ class RegAllocState {
 		if (spillIns != null)
 			ins.Append (spillIns);
 
-		ins.R0 = Conv2 (r0);
+		ins.R0 = Conv (r0);
 	}
 
 	public void Cmp (Ins ins, int r0, int r1) {
@@ -626,14 +614,14 @@ class RegAllocState {
 		if (spillIns != null)
 			ins.Append (spillIns);
 
-		ins.R0 = Conv2 (r0);
-		ins.R1 = Conv2 (r1);
+		ins.R0 = Conv (r0);
+		ins.R1 = Conv (r1);
 	}
 
 	public void CondBranch (Ins ins, CallInfo[] infos) {
 		SortedSet<AllocRequest> reqs = new SortedSet<AllocRequest> ();
 		for (int j = 0; j < infos.Length; ++j)
-			this.CallInfo2 (infos [j], reqs);
+			this.CallInfo (infos [j], reqs);
 
 		Ins spillIns = null;
 		DoAlloc (reqs, ref spillIns);
@@ -663,7 +651,7 @@ class RegAllocState {
 					repairing.Add (Tuple.Create (targetVS, thisVS));
 			}
 			if (repairing.Count > 0)
-				EmitRepairCode2 (info.Target, repairing);
+				EmitRepairCode (info.Target, repairing);
 
 		}
 	}
@@ -691,7 +679,7 @@ class RegAllocState {
 			});
 		}
 	}
-	static void EmitRepairCode2 (BasicBlock bb, List<Tuple<VarState, VarState>> repairing) {
+	static void EmitRepairCode (BasicBlock bb, List<Tuple<VarState, VarState>> repairing) {
 		var table = String.Join (",", repairing.Select (t => $"{t.Item1} <= {t.Item2}"));
 		Console.WriteLine ($"REPAIRING BB{bb.Number} WITH {table}");
 		/*CI allocation only requires repairing when the current BB has multiple out edges
@@ -747,7 +735,7 @@ class RegAllocState {
 		}
 	}
 
-	void CallInfo2 (CallInfo info, SortedSet<AllocRequest> reqs) {
+	void CallInfo (CallInfo info, SortedSet<AllocRequest> reqs) {
 		if (info.Target.InVarState == null) { //This happens the loop tail-> loop head edge.
 			for (int i = 0; i < info.Args.Count; ++i) {
 				reqs.Add (new AllocRequest (info.Args [i], true, null));
@@ -762,7 +750,7 @@ class RegAllocState {
 	public void DirectBranch (Ins ins, CallInfo[] infos) {
 		SortedSet<AllocRequest> reqs = new SortedSet<AllocRequest> ();
 		for (int j = 0; j < infos.Length; ++j)
-			this.CallInfo2 (infos [j], reqs);
+			this.CallInfo (infos [j], reqs);
 
 		Ins spillIns = null;
 		DoAlloc (reqs, ref spillIns);
@@ -782,9 +770,9 @@ class RegAllocState {
 		if (regToVar [(int)reg] >= 0)
 			throw new Exception ("For some reason, someone is already using SetReg's register. Fix your IR!");
 
-		Assign2 (vreg, reg, null);
+		AssignReg (vreg, reg, null);
 
-		ins.R0 = Conv2 (vreg);
+		ins.R0 = Conv (vreg);
 	}
 
 	List<Tuple<VarState, VarState>> args_repairing = new List<Tuple<VarState, VarState>> ();
@@ -811,7 +799,7 @@ class RegAllocState {
 				repairing.Add (Tuple.Create (bb.InVarState [i], source));
 		}
 		if (repairing.Count > 0)
-			EmitRepairCode2 (bb, repairing);
+			EmitRepairCode (bb, repairing);
 	}
 
 	public int Finish () {
@@ -824,7 +812,7 @@ class RegAllocState {
 		}
 
 		if (args_repairing.Count > 0) {
-			EmitRepairCode2 (bb, args_repairing);
+			EmitRepairCode (bb, args_repairing);
 		}
 		if (bb.NeedRepairing) {
 			Console.WriteLine ("DOING BB REPAIR ON FINISH BB{0}", bb.Number);
