@@ -98,6 +98,9 @@ namespace SimpleJit.Compiler {
 		//Call ops
 		Call,
 		VoidCall,
+
+		//Reg allow, MUST NOT BE USED outside as violates use/def sempantics of Ins
+		Swap,
 	}
 
 	public class CallInfo {
@@ -205,6 +208,8 @@ namespace SimpleJit.Compiler {
 				else
 					return $"{Op} {Method.Name} ({args})";
 			}
+			case Ops.Swap:
+				return $"{Op} {R0Str} <> {R1Str}";
 			default:
 				return $"{Op} {DStr} <= {R0Str} {R1Str} #FIXME";
 			}
@@ -311,6 +316,7 @@ public class BasicBlock {
 			for (Ins c = first; c != null; c = c.Next) {
 				if (c.Prev != null)
 					body += "\n";
+				// Console.WriteLine (c);
 				body += $"\t{c}";
 			}
 		}
@@ -841,6 +847,10 @@ public class Compiler {
 				case Ops.Call: {
 					Console.WriteLine ($"\tmovabsq $0xLALALA, %r11");
 					Console.WriteLine ($"\tcallq *%r11");
+					break;
+				}
+				case Ops.Swap: {
+					Console.WriteLine ($"\txchgl %{ins.R0.V2S().ToLower ()}, %{ins.R1.V2S().ToLower ()}");
 					break;
 				}
 				default:

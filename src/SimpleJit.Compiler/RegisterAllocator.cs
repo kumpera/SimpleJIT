@@ -282,7 +282,7 @@ class RegAllocState {
 		spillSlots [slot] = false;
 	}
 
-	VarState ForceSpill (AllocRequest ar) {
+	VarState SpillRequest (AllocRequest ar) {
 		Console.WriteLine ($"\tspilling {ar}");
 		int slot = AllocSpillSlot (ar.preferred != null ? ar.preferred.Value.spillSlot : -1);
 		ar.SetResult (new VarState (slot));
@@ -370,7 +370,7 @@ class RegAllocState {
 		var iu = string.Join (",", inUse.Select (r => r.ToString ()));
 		Console.WriteLine ($"FindOrSpill reg {ar.vreg} R2V ({s}) inUse ({iu})");
 		if (ar.canSpill && ar.preferred != null && ar.preferred.Value.IsSpill)
-			return ForceSpill (ar);
+			return SpillRequest (ar);
 
 		var vs = varState [ar.vreg];
 		var res = FindReg (ar, inUse, ref spillIns);
@@ -406,7 +406,7 @@ class RegAllocState {
 			foreach (var ar in reqs) {
 				//either can be spilled or has a spill in its preferred set
 				if (ar.canSpill || (ar.preferred != null && ar.preferred.Value.spillSlot >= 0)) {
-					ForceSpill (ar);
+					SpillRequest (ar);
 					--in_use;
 				}
 				if (in_use <= REG_MAX)
@@ -479,6 +479,18 @@ class RegAllocState {
 			});
 		}
 	}
+
+	static void EmitSwap (BasicBlock bb,  Tuple <VarState, VarState> varPair) {
+		if (!varPair.Item1.IsReg ||!varPair.Item2.IsReg)
+			throw new Exception ("Can only swap regs");
+
+		bb.Prepend (new Ins (Ops.Swap) {
+			R0 = MaskReg (varPair.Item1.reg),
+			R1 = MaskReg (varPair.Item1.reg),
+		});
+		
+	}
+
 	static void EmitRepairCode (BasicBlock bb, List<Tuple<VarState, VarState>> repairing) {
 		var table = String.Join (",", repairing.Select (t => $"{t.Item1} <= {t.Item2}"));
 		Console.WriteLine ($"REPAIRING BB{bb.Number} WITH {table}");
@@ -508,8 +520,27 @@ class RegAllocState {
 			Console.WriteLine ("**REPAIR ROUND");
 			var tmp = new HashSet<VarState> (dstVS);
 			tmp.ExceptWith (srcVS);
-			if (tmp.Count == 0)
+			if (tmp.Count == 0) {
+				//Try to find swap pairs
+				for (int i = 0; i < repairing.Count; ++i) {
+					var left = repairing [i];
+					for (int j = i + 1; j < repairing.Count; ++j) {
+						var right = repairing [j];
+						if (left.Item1.Eq (right.Item2) && left.Item2.Eq (right.Item1)) {
+							EmitSwap (bb, left);
+
+							dstVS.Remove (left.Item1);
+							dstVS.Remove (left.Item2);
+							srcVS.Remove (left.Item1);
+							srcVS.Remove (left.Item2);
+							goto found_swap;
+						}
+					}
+				}
 				throw new Exception ("CAN'T DO TRIVIAL REPAIR, NEED SWAPS");
+found_swap:
+				continue;
+			}
 
 			foreach (var d in tmp) {
 				Console.WriteLine ($"\tdoing {d}");
@@ -802,23 +833,92 @@ class RegAllocState {
 		var vs = varState [dest];
 
 		if (!vs.IsReg || vs.reg != reg) {
-			Console.WriteLine ($"Need to fixup income reg. I want {reg} but have {vs}");
+			Console.WriteLine ($"Need to fixup incoming regs. I want {reg} but have {vs}");
 			args_repairing.Add (Tuple.Create (vs, new VarState (reg)));
 		}
 		ins.Op = Ops.Nop;
+	}
+
+	Ins SpillAroundCalls (int vreg)
+	{
+		var oldReg = varState [vreg].reg;
+
+		if (!varState [vreg].IsLive || !varState [vreg].IsReg)
+			throw new Exception ($"Invalid call spill for {vreg}");
+
+		regToVar [(int)oldReg] = -1;
+
+		for (int i = 0; i < CallConv.callee_saved.Length; ++i) {
+			if (regToVar [(int)CallConv.callee_saved [i]] == -1) {
+				var reg = CallConv.callee_saved [i];
+				AssignReg (vreg, reg, null);
+
+				return new Ins (Ops.Mov) {
+					Dest = MaskReg (oldReg),
+					R0 = MaskReg (reg)
+				};
+			}
+		}
+
+		//no callee saves regs available :(
+		varState [vreg].reg = Register.None;
+		varState [vreg].spillSlot = AllocSpillSlot (-1);
+		return new Ins (Ops.FillVar) {
+			Dest = MaskReg (oldReg),
+			Const0 = varState [vreg].spillSlot,
+		};
 	}
 
 	public void Call (Ins ins, int dest, int[] argVars) {
 		var inUse = new HashSet<Register> ();
 
 		//handle return value
+		Ins postSpill = null;
 		Register retReg = CallConv.ret [0];
-		if (regToVar [(int)retReg] == -1)
+		if (regToVar [(int)retReg] == dest) { //we got lucky, already in place
+			// inUse.Add (retReg);
+		} else if (regToVar [(int)retReg] == -1) {
 			throw new Exception ($"need to emit copy to {retReg}");
-		if (regToVar [(int)retReg] != dest)
-			throw new Exception ($"need to deal with ret val {regToVar [(int)retReg]} -> {varState [regToVar [(int)retReg]]} and I need {retReg}");
+		} else {
+			var vs = varState [dest];
+			int vreg = regToVar [(int)retReg];
+			Console.WriteLine ($"need to spill {vreg} as it's used a return reg");
+			
+			if (vs.IsReg) {
+	   			 postSpill = new Ins (Ops.Mov) {
+	   				Dest = MaskReg (vs.reg),
+					R0 = MaskReg (retReg)
+	   			};
+				regToVar [(int)vs.reg] = -1; //XXX assign reg should do this?
+			} else {
+				throw new Exception ("Need to handle return to spill");
+			}
 
+			postSpill.SetNext (SpillAroundCalls (vreg));	
+
+			AssignReg (dest, retReg, null);
+
+			// throw new Exception ($"need to deal with ret val {regToVar [(int)retReg]} -> {varState [regToVar [(int)retReg]]} and I need {retReg}");
+		}
 		ins.Dest = Conv (dest);
+
+		for (int i = 0; i < CallConv.caller_saved.Length; ++i) {
+			var reg = CallConv.caller_saved [i];
+			int vreg = regToVar [(int)reg];
+			if (vreg == -1)
+				continue;
+			if (reg == retReg)
+				continue;
+
+			Console.WriteLine ($"Need to spill R{vreg} =? {reg}");
+			if (postSpill == null)
+				postSpill = SpillAroundCalls (vreg);
+			else
+				postSpill.Append (SpillAroundCalls (vreg));
+		}
+
+		if (postSpill != null)
+			ins.Append (postSpill);
 		inUse.Add (retReg);
 
 		for (int i = 0; i < argVars.Length; ++i) {
@@ -832,14 +932,6 @@ class RegAllocState {
 			AssignReg (argVars [i], aReg, null);
 			argVars [i] = Conv (argVars [i]);
 			inUse.Add (aReg);
-		}
-
-		for (int i = 0; i < CallConv.caller_saved.Length; ++i) {
-			var reg = CallConv.caller_saved [i];
-			if (inUse.Contains (reg))
-				continue;
-			if (regToVar [(int)reg] != -1)
-				throw new Exception ($"Need to spill {reg}");
 		}
 
 		KillVar (dest);
@@ -858,6 +950,7 @@ class RegAllocState {
 		if (args_repairing.Count > 0) {
 			EmitRepairCode (bb, args_repairing);
 		}
+
 		if (bb.NeedRepairing) {
 			Console.WriteLine ("DOING BB REPAIR ON FINISH BB{0}", bb.Number);
 			bb.NeedRepairing = false;
@@ -871,6 +964,7 @@ class RegAllocState {
 				}
 			}
 		}
+		Console.WriteLine ("djd");
 		//Returns the number of spill slots used. spillSlotMax 0 means we used 1 slot
 		return spillSlotMax + 1;
 	}
