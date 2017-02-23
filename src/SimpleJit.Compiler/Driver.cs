@@ -39,8 +39,8 @@ public class Driver {
 		Console.WriteLine ("we have {0} methods", img.MethodDefTable.Count);
 		for (int i = 0; i < img.MethodDefTable.Count; ++i) {
 			var method =  img.LoadMethodDef (i);
-			if (method.Name != "CallAdd")
-				continue;
+			// if (method.Name == "Add")
+			// 	continue;
 
 			Compiler compiler = new Compiler (method);
 			compiler.Run ();

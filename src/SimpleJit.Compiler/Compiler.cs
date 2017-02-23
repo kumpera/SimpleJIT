@@ -42,14 +42,15 @@ DONE:
 	n-var repairing - done for trivial repair.
 	spilling //basic done, lots of corner cases left TBH
 	implement cprop, dce and isel as part of the front-end -- done, ishy, cprop and isel, no DCE
-
-TODO:
 	calls
 	2 pass alloc (forward pass for prefs, backward pass for alloc)
+
+TODO:
 	LVN in the front-end
-
-
 	DCE and x-block const prop
+
+	3 pass alloc that does backwards for liveness, then forward for prefs, then backwards again for alloc
+	iterated alloc in case of bad decision (too much repair?)
 	actual DCE, regalloc gets pissed off with dead dregs
 	critical edges
 	valuetypes
@@ -256,6 +257,7 @@ public class BasicBlock {
 	internal ISet<int> InVars = new SortedSet<int> ();
 	internal ISet<int> DefVars = new HashSet<int> ();
 	public List<VarState> InVarState { get; set; }
+	internal RegPrefs[] RegPrefs { get; set; }
 
 	Compiler compiler;
 	Ins first, last;
@@ -695,6 +697,7 @@ public class Compiler {
 	void RegAlloc () {
 		Console.WriteLine ("DOING REGALLOC");
 
+
 		//Insert fake instructions for reg args
 		
 		//XXX right now we have a fixed 2 int args
@@ -715,6 +718,9 @@ public class Compiler {
 				R0 = 0
 			});
 		}
+
+		var pass = new RegPreferencesPass (this);
+		pass.Run ();
 
 		var list = new List<BasicBlock> (); //FIXME use a queue collection
 
@@ -814,7 +820,7 @@ public class Compiler {
 					if (ins.Const0 == 1)
 						Console.WriteLine ($"\tincl %{ins.Dest.V2S().ToLower ()}");
 					else
-						Console.WriteLine ($"\taddl %{ins.Dest.V2S().ToLower ()}, $0x%{ins.Const0:X}");
+						Console.WriteLine ($"\taddl %{ins.Dest.V2S().ToLower ()}, $0x{ins.Const0:X}");
 					break;
 				case Ops.SetRet:
 				case Ops.Nop:

@@ -298,6 +298,14 @@ class RegAllocState {
 		if (ar.preferred != null && ar.preferred.Value.IsReg && regToVar [(int)ar.preferred.Value.reg] == -1)
 			return AssignReg (vreg, ar.preferred.Value.reg, inUse);
 
+		var prefs = bb.RegPrefs [ar.vreg];
+		foreach (var candidate in prefs.Likes) {
+			if (regToVar [(int)candidate] == -1) {
+				Console.WriteLine ("\t>>FindReg picked reg pref");
+				return AssignReg (vreg, candidate, inUse);
+			}
+		}
+
 		for (int i = 0; i < CallConv.caller_saved.Length; ++i) {
 			Register candidate = CallConv.caller_saved [i];
 			if (regToVar [(int)candidate] == -1)
@@ -657,7 +665,37 @@ found_swap:
 		}
 	}
 
+	bool ShouldSwap (Ins ins) {
+		if (ins.Op != Ops.Add) //or mul or reverse subtract on ARM
+			return false;
+
+		var vsR0 = varState [ins.R0];
+		var vsR1 = varState [ins.R1];
+		var vsDest = varState [ins.Dest];
+
+		//on x86, it's profitable as R0 is clobbered and we can simply extend dest to r0
+		if (vsR0.IsLive && !vsR1.IsLive) {
+			Console.WriteLine ("r0 live r1 dead");
+			return true;
+		}
+
+		if (!vsR0.IsLive && !vsR1.IsLive && vsDest.IsReg && bb.RegPrefs [ins.R1].DoesLike (vsDest.reg)) {
+			Console.WriteLine ("r1 likes dest");
+			return true;
+		}
+
+		return false;
+	}
+
 	public void BinOp (Ins ins, int dest, int r0, int r1) {
+		if (ShouldSwap (ins)) {
+			Console.WriteLine ($"SWAPPING args for {ins}");
+			ins.R0 = r1;
+			ins.R1 = r0;
+			r1 = ins.R1;
+			r0 = ins.R0;
+		}
+
 		var vsDest = varState [dest];
 		var vsR0 = varState [r0];
 		var vsR1 = varState [r1];
@@ -676,6 +714,9 @@ found_swap:
 			inUse.Add (vsDest.reg);
 
 		//Binop follows x86 rules of r0 getting clobbered.
+		if (vsR0.IsLive && vsR1.IsLive) {
+			
+		}
 		//if vsR0 is not live, we assign it to whatever dest gets
 		if (vsR0.IsLive && vsR0.IsReg)
 			inUse.Add (vsR0.reg);
@@ -964,7 +1005,6 @@ found_swap:
 				}
 			}
 		}
-		Console.WriteLine ("djd");
 		//Returns the number of spill slots used. spillSlotMax 0 means we used 1 slot
 		return spillSlotMax + 1;
 	}
@@ -995,4 +1035,167 @@ found_swap:
 	}
 }
 
+internal struct RegPrefs {
+	internal int vreg;
+	HashSet<Register> likes;
+
+	internal bool DoesLike (Register reg) {
+		return likes != null && likes.Contains (reg);
+	}
+
+	internal void AddLike (Register reg) {
+		if (likes == null)
+			likes = new HashSet <Register> ();
+		likes.Add (reg);
+	}
+
+	internal void LikesSameAs (ref RegPrefs other) {
+		if (other.likes	== null)
+			return;
+		if (likes == null)
+			likes = new HashSet <Register> ();
+
+		likes.UnionWith (other.likes);
+	}
+
+	internal void MergeArgs (ref RegPrefs other) {
+		if (other.likes	== null || other.likes.Count == 0)
+			return;
+
+		if (likes == null)
+			likes = new HashSet <Register> ();
+
+		if (likes.Count == 0)
+			likes.UnionWith (other.likes);
+		else
+			likes.IntersectWith (other.likes);
+	}
+
+	internal HashSet<Register> Likes {
+		get {
+			if (likes == null)
+				return new HashSet <Register> ();
+			return likes;
+		}
+	}
+
+	public override string ToString () {
+		if (likes == null)
+			return "";
+		var regs = string.Join (",", likes.Select (r => "+" + r.ToString ()));
+		return $"R{vreg} => {regs})";
+	}
+}
+
+public class RegPreferencesPass {
+	Compiler cc;
+
+	public RegPreferencesPass (Compiler cc) {
+		this.cc = cc;
+	}
+
+	RegPrefs[] InitBB (BasicBlock bb) {
+		if (bb.RegPrefs != null)
+			return bb.RegPrefs;
+		RegPrefs[] prefs = new RegPrefs [bb.MaxReg ()];
+		for (int i = 0; i < prefs.Length; ++i)
+			prefs [i].vreg = i;
+		bb.RegPrefs = prefs;
+		return prefs;
+	}
+
+	void ForwardToBB (BasicBlock from, CallInfo ci) {
+		var fromPrefs = InitBB (from);
+
+		var to = ci.Target;
+		var toPrefs = InitBB (to);
+
+		for (int i = 0; i < ci.Args.Count; ++i) {
+			int vreg = ci.Args [i];
+			toPrefs [i].MergeArgs (ref fromPrefs [vreg]);
+		}
+	}
+
+	static string PrefsToString (RegPrefs[] prefs) {
+		var r = "";
+		for (int i = 0; i < prefs.Length; ++i) {
+			var str = prefs [i].ToString ();
+			if (str != "") {
+				if (r != "")
+					r += ",";
+				r += str;
+			}
+		}
+		return $"({r})";
+	}
+
+	void ForwardPrefs (BasicBlock bb) {
+		RegPrefs[] prefs = InitBB (bb);
+
+		Console.WriteLine ($">Forward prefs of BB{bb.Number}: INITIAL {PrefsToString (prefs)}");
+
+		for (Ins ins = bb.FirstIns; ins != null; ins = ins.Next) {
+			switch (ins.Op) {
+			case Ops.LoadArg:
+				prefs [ins.Dest].AddLike (CallConv.args [ins.Const0]);
+				break;
+			//XXX we'd like if R0 could share reg with dreg, but we can only do this on a backward pass if this is the last use of R0
+			case Ops.Add:
+			case Ops.AddI:
+				// prefs [ins.Dest].LikesSameAs (ref prefs [ins.R0]);
+				break;
+			case Ops.Cmp: //this has no constraints
+			case Ops.CmpI: //this has no constraints
+			case Ops.IConst:
+			case Ops.SetRet: //this is a backwards constraint
+				break;
+			case Ops.Ble:
+			case Ops.Blt:
+				ForwardToBB (bb, ins.CallInfos [0]);
+				ForwardToBB (bb, ins.CallInfos [1]);
+				break;
+			case Ops.Br: //we handle BB args separatedly
+				ForwardToBB (bb, ins.CallInfos [0]);
+				break;
+			//XXX nothing much we can do for arg regs, it matters more if they outlive this call
+			case Ops.Call:
+				prefs [ins.Dest].AddLike (CallConv.ret [0]);
+				break;
+			default:
+				throw new Exception ($"Can't handle {ins}");
+			}
+		}
+		Console.WriteLine ($"PREFS: {PrefsToString (prefs)} for BB{bb.Number}");
+	}
+
+
+	public void Run () {
+		Console.WriteLine ("Computing register preferences");
+
+		BasicBlock bb;
+		var q = new List <BasicBlock> (); //XXX use a queue
+
+		//first we do a forward pass to propagate returns and in arg regs
+		for (bb = cc.first_bb; bb != null; bb = bb.NextInOrder)
+			bb.Enqueued = bb.Done = false;
+
+		q.Add (cc.first_bb);
+
+		while (q.Count > 0) {
+			var current = q [0];
+			q.RemoveAt (0);
+			current.Enqueued = false;
+			current.Done = true;
+
+			ForwardPrefs (current);
+
+			foreach (var next in current.To) {
+				if (!next.Enqueued && !next.Done) {
+					q.Add (next);
+					next.Enqueued = true;
+				}
+			}
+		}
+	}
+}
 }
