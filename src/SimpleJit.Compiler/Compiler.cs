@@ -45,12 +45,17 @@ DONE:
 	calls
 	2 pass alloc (forward pass for prefs, backward pass for alloc)
 
+GOALS:
+	Generate full assembly that can then be used to test the results.
+	Show some aggressive high level opts.
+	Produce AOT images compat with mono as a final POC for this.
+
 TODO:
 	LVN in the front-end
 	DCE and x-block const prop
 
-	3 pass alloc that does backwards for liveness, then forward for prefs, then backwards again for alloc
-	iterated alloc in case of bad decision (too much repair?)
+	3 pass alloc that does backwards for liveness, then forward for prefs, then backwards again for alloc.
+		The first backwards pass would allow us to give callee-saved prefs and some spill heuristics.
 	actual DCE, regalloc gets pissed off with dead dregs
 	critical edges
 	valuetypes
@@ -58,7 +63,8 @@ TODO:
 	floating point
 	more ops
 	let the regalloc change encoding (add reg, reg -> add reg, [spill slot])
-
+	iterated alloc in case of bad decision (too much repair?)
+	do some of the spilling during the prefs pass.
 */
 namespace SimpleJit.Compiler {
 	internal static class IntExtensions {
@@ -760,41 +766,45 @@ public class Compiler {
 		}
 	}
 
-	void CodeGen () {
+	void CodeGen (StreamWriter asm) {
 		Console.WriteLine ("--- CODEGEN");
 
 		//hardcoded prologue
-		Console.WriteLine ("\tpushq %rbp");
-		Console.WriteLine ("\tmovq %rsp, %rbp");
+		asm.WriteLine ($".globl _{method.Name}");
+		asm.WriteLine (".align	4");
+
+		asm.WriteLine ($"_{method.Name}:");
+		asm.WriteLine ("\tpushq %rbp");
+		asm.WriteLine ("\tmovq %rsp, %rbp");
 
 		//Emit save
 		int stack_space = (callee_saved.Count + spillAreaUsed) * 8;
 		int spillOffset = 8;
 		if (stack_space > 0) {
-			Console.WriteLine ($"\tsubq 0x${stack_space:X}, %rsp");
+			asm.WriteLine ($"\tsubq 0x${stack_space:X}, %rsp");
 			int idx = 8;
 			foreach (var reg in callee_saved) {
-				Console.WriteLine ($"\tmovq ${reg.ToString ().ToLower ()}, -0x{idx:X}(%rbp)");
+				asm.WriteLine ($"\tmovq ${reg.ToString ().ToLower ()}, -0x{idx:X}(%rbp)");
 				idx += 8;
 			}
 			spillOffset = idx;
 		}
 
 		for (var bb = first_bb; bb != null; bb = bb.NextInOrder) {
-			Console.WriteLine ($"BB{bb.Number}:");
+			asm.WriteLine ($"#BB{bb.Number}:");
 
 			for (Ins ins = bb.FirstIns; ins != null; ins = ins.Next) {
 				switch (ins.Op) {
 				case Ops.Mov:
 					if (ins.Dest != ins.R0)
-						Console.WriteLine ($"\tmovq %{ins.R0.V2S().ToLower ()}, %{ins.Dest.V2S().ToLower ()}");
+						asm.WriteLine ($"\tmovq %{ins.R0.V2S().ToLower ()}, %{ins.Dest.V2S().ToLower ()}");
 					break;
 				case Ops.IConst: {
 					if (ins.Const0 == 0) {
-						Console.WriteLine ($"\txorl %{ins.Dest.V2S().ToLower ()}, %{ins.Dest.V2S().ToLower ()}");
+						asm.WriteLine ($"\txorq %{ins.Dest.V2S().ToLower ()}, %{ins.Dest.V2S().ToLower ()}");
 					} else {
 						var str = ins.Const0.ToString ("X");
-						Console.WriteLine ($"\tmovq $0x{str}, %{ins.Dest.V2S().ToLower ()}");
+						asm.WriteLine ($"\tmovq $0x{str}, %{ins.Dest.V2S().ToLower ()}");
 					}
 					break;
 				}
@@ -803,60 +813,60 @@ public class Compiler {
 				case Ops.Bg:
 				case Ops.Bge: {
 					var mi = BranchOpToJmp (ins.Op);
-					Console.WriteLine ($"\t{mi} $BB{ins.CallInfos[0].Target.Number}");
+					asm.WriteLine ($"\t{mi} $BB{ins.CallInfos[0].Target.Number}");
 					break;
 				} case Ops.Br:
 					if (ins.CallInfos[0].Target != bb.NextInOrder)
-						Console.WriteLine ($"\tjmp $BB{ins.CallInfos[0].Target.Number}");
+						asm.WriteLine ($"\tjmp $BB{ins.CallInfos[0].Target.Number}");
 					break;
 				case Ops.Add:
 					if (ins.Dest != ins.R0)
 						throw new Exception ("Bad binop encoding!");
-					Console.WriteLine ($"\taddl %{ins.R1.V2S().ToLower ()}, %{ins.Dest.V2S().ToLower ()}");
+					asm.WriteLine ($"\taddq %{ins.R1.V2S().ToLower ()}, %{ins.Dest.V2S().ToLower ()}");
 					break;
 				case Ops.AddI:
 					if (ins.Dest != ins.R0)
 						throw new Exception ("Bad binop encoding!");
 					if (ins.Const0 == 1)
-						Console.WriteLine ($"\tincl %{ins.Dest.V2S().ToLower ()}");
+						asm.WriteLine ($"\tincl %{ins.Dest.V2S().ToLower ()}");
 					else
-						Console.WriteLine ($"\taddl %{ins.Dest.V2S().ToLower ()}, $0x{ins.Const0:X}");
+						asm.WriteLine ($"\taddq $0x{ins.Const0:X}, %{ins.Dest.V2S().ToLower ()}");
 					break;
 				case Ops.SetRet:
 				case Ops.Nop:
 					break;
 				case Ops.SpillVar: {
 					int offset = spillOffset + ins.Const0 * 8;
-					Console.WriteLine ($"\tmovq ${ins.R0.V2S().ToLower ()}, -0x{(offset):X}(%rbp)");
+					asm.WriteLine ($"\tmovq ${ins.R0.V2S().ToLower ()}, -0x{(offset):X}(%rbp)");
 					break;
 				}
 				case Ops.SpillConst: {
 					int offset = spillOffset + ins.Const1 * 8;
 					var str = ins.Const0.ToString ("X");
-					Console.WriteLine ($"\tmovq $0x{str}, -0x{(offset):X}(%rbp)");
+					asm.WriteLine ($"\tmovq $0x{str}, -0x{(offset):X}(%rbp)");
 					break;
 				}
 				case Ops.FillVar: {
 					int offset = spillOffset + ins.Const0 * 8;
-					Console.WriteLine ($"\tmovq -0x{offset:X}(%rbp), ${ins.Dest.V2S().ToString ().ToLower ()}");
+					asm.WriteLine ($"\tmovq -0x{offset:X}(%rbp), ${ins.Dest.V2S().ToString ().ToLower ()}");
 					break;
 				}
 				case Ops.CmpI: {
 					var str = ins.Const0.ToString ("X");
-					Console.WriteLine ($"\tcmpl 0x{str}, %{ins.R0.V2S().ToLower ()}");
+					asm.WriteLine ($"\tcmpl 0x{str}, %{ins.R0.V2S().ToLower ()}");
 					break;
 				}
 				case Ops.Cmp: {
-					Console.WriteLine ($"\tcmpl %{ins.R0.V2S().ToLower ()}, %{ins.R1.V2S().ToLower ()}");
+					asm.WriteLine ($"\tcmpl %{ins.R0.V2S().ToLower ()}, %{ins.R1.V2S().ToLower ()}");
 					break;
 				}
 				case Ops.Call: {
-					Console.WriteLine ($"\tmovabsq $0xLALALA, %r11");
-					Console.WriteLine ($"\tcallq *%r11");
+					asm.WriteLine ($"\tmovabsq $0xLALALA, %r11");
+					asm.WriteLine ($"\tcallq *%r11");
 					break;
 				}
 				case Ops.Swap: {
-					Console.WriteLine ($"\txchgl %{ins.R0.V2S().ToLower ()}, %{ins.R1.V2S().ToLower ()}");
+					asm.WriteLine ($"\txchgl %{ins.R0.V2S().ToLower ()}, %{ins.R1.V2S().ToLower ()}");
 					break;
 				}
 				default:
@@ -871,16 +881,16 @@ public class Compiler {
 		if (callee_saved.Count > 0) {
 			int idx = 8;
 			foreach (var reg in callee_saved) {
-				Console.WriteLine ($"\tmovq -0x{idx:X}(%rbp), ${reg.ToString ().ToLower ()}");
+				asm.WriteLine ($"\tmovq -0x{idx:X}(%rbp), ${reg.ToString ().ToLower ()}");
 				idx += 8;
 			}
 		}
 
-		Console.WriteLine ("\tleave");
-		Console.WriteLine ("\tretq");
+		asm.WriteLine ("\tleave");
+		asm.WriteLine ("\tretq");
 
 	}
-	public void Run () {
+	public void Run (StreamWriter asm) {
 		/*
 		Compilation pipeline:
 		
@@ -912,7 +922,7 @@ public class Compiler {
 		RegAlloc ();
 
 		//step 6, codegen
-		CodeGen ();
+		CodeGen (asm);
 	}
 }
 

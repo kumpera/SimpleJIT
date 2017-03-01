@@ -25,7 +25,7 @@ COMPILER_FILES = src/SimpleJit.Compiler/Driver.cs	\
 
 SAMPLES = bin/simple-fun.exe
 
-all: bin bin/SimpleJit.dll bin/SimpleJit_test.dll bin/compiler.exe zz.dll
+all: bin bin/SimpleJit.dll bin/SimpleJit_test.dll bin/compiler.exe basic.dll
 
 samples : $(SAMPLES)
 bin:
@@ -46,8 +46,8 @@ src/SimpleJit.Cil/OpcodesTableGenerated.cs: src/SimpleJit.Cil.Generators/opcode-
 src/SimpleJit.Cil/MetadataTableGenerated.cs: src/SimpleJit.Cil.Generators/table-defs-emit.rb
 	ruby src/SimpleJit.Cil.Generators/table-defs-emit.rb  > src/SimpleJit.Cil/MetadataTableGenerated.cs
 
-zz.dll: zz.cs
-	mcs -debug /unsafe zz.cs -target:library -out:zz.dll
+basic.dll: basic.cs
+	mcs -debug /unsafe basic.cs -target:library -out:basic.dll
 
 compile: bin/SimpleJit.dll bin/SimpleJit_test.dll
 	@echo done
@@ -59,3 +59,19 @@ bin/%.exe: samples/%.cs
 	mcs /unsafe /r:bin/SimpleJit.dll -out:$@ $<
 
 .PHONY: run_test
+
+
+basic.dll_test.s basic.dll_driver.c: basic.dll bin/compiler.exe
+	mono --debug bin/compiler.exe basic.dll
+
+basic.dll_test.o: basic.dll_test.s
+	clang -c basic.dll_test.s
+
+basic.dll_driver.o: basic.dll_driver.c
+	clang -c basic.dll_driver.c
+
+basic_test: basic.dll_test.o basic.dll_driver.o
+	clang basic.dll_test.o basic.dll_driver.o -o basic_test
+
+compiler-test: basic_test
+	./basic_test
