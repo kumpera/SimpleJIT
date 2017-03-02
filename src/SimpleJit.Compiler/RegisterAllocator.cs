@@ -604,7 +604,9 @@ found_swap:
 	public void Def (Ins ins, int vreg) {
 		//This just kills the reg
 		var vs = varState [vreg];
-		if (vs.IsReg) {
+		if (!vs.IsLive) {
+			ins.Op = Ops.Nop;
+		} else if (vs.IsReg) {
 			ins.Dest = Conv (vreg);
 			regToVar [(int)vs.reg] = -1;
 		} else {

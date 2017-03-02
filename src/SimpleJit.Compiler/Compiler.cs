@@ -791,7 +791,7 @@ public class Compiler {
 		}
 
 		for (var bb = first_bb; bb != null; bb = bb.NextInOrder) {
-			asm.WriteLine ($"#BB{bb.Number}:");
+			asm.WriteLine ($"_{method.Name}_BB{bb.Number}:");
 
 			for (Ins ins = bb.FirstIns; ins != null; ins = ins.Next) {
 				switch (ins.Op) {
@@ -813,11 +813,11 @@ public class Compiler {
 				case Ops.Bg:
 				case Ops.Bge: {
 					var mi = BranchOpToJmp (ins.Op);
-					asm.WriteLine ($"\t{mi} $BB{ins.CallInfos[0].Target.Number}");
+					asm.WriteLine ($"\t{mi} _{method.Name}_BB{ins.CallInfos[0].Target.Number}");
 					break;
 				} case Ops.Br:
 					if (ins.CallInfos[0].Target != bb.NextInOrder)
-						asm.WriteLine ($"\tjmp $BB{ins.CallInfos[0].Target.Number}");
+						asm.WriteLine ($"\tjmp _{method.Name}_BB{ins.CallInfos[0].Target.Number}");
 					break;
 				case Ops.Add:
 					if (ins.Dest != ins.R0)
@@ -853,11 +853,11 @@ public class Compiler {
 				}
 				case Ops.CmpI: {
 					var str = ins.Const0.ToString ("X");
-					asm.WriteLine ($"\tcmpl 0x{str}, %{ins.R0.V2S().ToLower ()}");
+					asm.WriteLine ($"\tcmpq $0x{str}, %{ins.R0.V2S().ToLower ()}");
 					break;
 				}
 				case Ops.Cmp: {
-					asm.WriteLine ($"\tcmpl %{ins.R0.V2S().ToLower ()}, %{ins.R1.V2S().ToLower ()}");
+					asm.WriteLine ($"\tcmpq %{ins.R1.V2S().ToLower ()}, %{ins.R0.V2S().ToLower ()}");
 					break;
 				}
 				case Ops.Call: {
