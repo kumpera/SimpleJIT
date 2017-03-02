@@ -52,6 +52,22 @@ public static class Foo {
 		return 2;
 	}
 
+	public static int test_1_comp_with_const2 ()
+	{
+		int a = 10;
+		if (20 > a)
+			return 1;
+		return 2;
+	}
+
+	public static int test_1_10_20_comp_with_const2 (int a, int b)
+	{
+		int c = a;
+		if (b > c)
+			return 1;
+		return 2;
+	}
+
 	public static int test_3_1_44_cond_with_add (int a, int b)
 	{
 		int c = 0;
