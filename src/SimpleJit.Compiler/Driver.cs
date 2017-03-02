@@ -58,14 +58,32 @@ public class Driver {
 		asm.WriteLine (".section	__TEXT,__text,regular,pure_instructions");
 	}
 
+	static void GenTestCode (StreamWriter c_test, string methodName, string expected, string args) {
+		c_test.WriteLine ($"\tres = {methodName} ({args});");
+		c_test.WriteLine ($"\tif (res != {expected}) {{");
+		c_test.WriteLine ($"\t\tprintf (\"test {methodName} returned %d expected {expected}\\n\", res);");
+		c_test.WriteLine ($"\t\tsuite_res = 1;");
+		c_test.WriteLine ("\t}");
+	}
+
 	static void EmitCTestCode (StreamWriter c_test, List<MethodData> ml)
 	{
 		c_test.WriteLine ("#include <stdio.h>");
 
 		foreach (var m in ml) {
-			if (m.Signature.ParamCount > 0)
-				throw new Exception ("Can't test multiple arguments");
-			c_test.WriteLine ($"extern int {m.Name}(void);");
+			string argList;
+			if (m.Signature.ParamCount == 0) {
+				argList = "void";
+			} else {
+				argList = "";
+				for (int i = 0; i < m.Signature.ParamCount; ++i) {
+					if (i > 0)
+						argList += ", ";
+					argList += $"int arg_{i}";
+				}
+			}
+
+			c_test.WriteLine ($"extern int {m.Name}({argList});");
 		}
 
 		c_test.WriteLine ("\nint main (int argc, char *argv[]) {");
@@ -73,12 +91,19 @@ public class Driver {
 		c_test.WriteLine ("\tint res;");
 
 		foreach (var m in ml) {
-			int expected = int.Parse (m.Name.Split ('_')[1]);
-			c_test.WriteLine ($"\tres = {m.Name} ();");
-			c_test.WriteLine ($"\tif (res != {expected}) {{");
-			c_test.WriteLine ($"\t\tprintf (\"test {m.Name} returned %d expected {expected}\\n\", res);");
-			c_test.WriteLine ($"\t\tsuite_res = 1;");
-			c_test.WriteLine ("\t}");
+			if (m.Signature.ParamCount == 0) {
+				GenTestCode (c_test, m.Name, m.Name.Split ('_')[1], "");
+			} else {
+				var sp = m.Name.Split ('_');
+				string argList = "";
+				for (int i = 0; i < m.Signature.ParamCount; ++i) {
+					if (i > 0)
+						argList += ", ";
+					argList += sp [i + 2];
+				};
+
+				GenTestCode (c_test, m.Name, sp[1], argList);
+			}
 		}
 
 		c_test.WriteLine ("\treturn suite_res;");

@@ -46,8 +46,11 @@ src/SimpleJit.Cil/OpcodesTableGenerated.cs: src/SimpleJit.Cil.Generators/opcode-
 src/SimpleJit.Cil/MetadataTableGenerated.cs: src/SimpleJit.Cil.Generators/table-defs-emit.rb
 	ruby src/SimpleJit.Cil.Generators/table-defs-emit.rb  > src/SimpleJit.Cil/MetadataTableGenerated.cs
 
-basic.dll: basic.cs
-	mcs -debug /unsafe basic.cs -target:library -out:basic.dll
+libtest.dll: libtest.cs
+	mcs -debug libtest.cs -target:library -out:libtest.dll
+
+basic.dll: basic.cs libtest.dll
+	mcs -debug /unsafe basic.cs -target:library -out:basic.dll -r:libtest.dll
 
 compile: bin/SimpleJit.dll bin/SimpleJit_test.dll
 	@echo done

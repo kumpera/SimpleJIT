@@ -1,3 +1,5 @@
+using SimpleJit.Testing;
+
 public static class Foo {
 	public static int test_0_return_const ()
 	{
@@ -19,4 +21,8 @@ public static class Foo {
 		return c;
 	}
 
+	public static int test_4_1_3_add_arguments (int a, int b)
+	{
+		return a + b;
+	}
 }
