@@ -88,4 +88,32 @@ public static class Foo {
 		return c + 2;
 	}
 
+	public static int test_45_simple_counting_loop () {
+		int res = 0;
+		for (int i = 0; i < 10; ++i) {
+			res += i;
+		}
+		return res;
+	}
+
+	public static int test_35_12_loop_with_limit (int limit) {
+		int acc = 0;
+		for (int i = 0; i < limit; ++i) {
+			if (i > 10)
+				acc += 2;
+			else
+				acc += 3;
+		}
+		return acc;
+	}
+
+	public static int test_30_call_other () {
+		return EarlyReturn (5);
+	}
+
+	public static int EarlyReturn (int v) {
+		if (v > 10)
+			return 20;
+		return 30;
+	}
 }

@@ -42,10 +42,13 @@ public class Driver {
 			EmitAsmHeader (asm);
 			var ml = new List<MethodData>  ();
 			for (int i = 0; i < img.MethodDefTable.Count; ++i) {
-				var method =  img.LoadMethodDef (i);
+				var method = img.LoadMethodDef (i);
+				// if (method.Name != "test_20_call_other")
+				// 	continue;
 				Compiler compiler = new Compiler (method);
 				compiler.Run (asm);
-				ml.Add (method);
+				if (method.Name.StartsWith ("test_"))
+					ml.Add (method);
 			}
 			EmitCTestCode (c_test, ml);
 			

@@ -121,13 +121,12 @@ public partial class Image {
 
 	//FIXME no caching, index in untyped
 	public MethodData LoadMethodDefOrRef (int coded_token) {
-		Console.WriteLine ("{0:X}", coded_token);
 		Table table = (Table)(coded_token >> 24);
 		int idx = coded_token & 0xFFFFFF;
 
 		if (table != Table.MethodDef)
 			throw new Exception ($"Can't LoadMethodDefOrRef with {table}");
-		return LoadMethodDef (idx);
+		return LoadMethodDef (idx - 1); //row idx is one-based <o>
 	}
 
 	public Signature LoadSignature (int idx) {

@@ -828,7 +828,7 @@ public class Compiler {
 					if (ins.Dest != ins.R0)
 						throw new Exception ("Bad binop encoding!");
 					if (ins.Const0 == 1)
-						asm.WriteLine ($"\tincl %{ins.Dest.V2S().ToLower ()}");
+						asm.WriteLine ($"\tincq %{ins.Dest.V2S().ToLower ()}");
 					else
 						asm.WriteLine ($"\taddq $0x{ins.Const0:X}, %{ins.Dest.V2S().ToLower ()}");
 					break;
@@ -861,7 +861,7 @@ public class Compiler {
 					break;
 				}
 				case Ops.Call: {
-					asm.WriteLine ($"\tmovabsq $0xLALALA, %r11");
+					asm.WriteLine ($"\tleaq _{ins.Method.Name}(%rip), %r11");
 					asm.WriteLine ($"\tcallq *%r11");
 					break;
 				}
