@@ -530,6 +530,7 @@ class RegAllocState {
 			tmp.ExceptWith (srcVS);
 			if (tmp.Count == 0) {
 				//Try to find swap pairs
+				Console.WriteLine ("\tTrying swaps");
 				for (int i = 0; i < repairing.Count; ++i) {
 					var left = repairing [i];
 					for (int j = i + 1; j < repairing.Count; ++j) {
@@ -567,9 +568,11 @@ found_swap:
 			throw new Exception ("Need to figure out how to compute repair optimal swapping");
 
 		for (int i = 0; i < bb.InVarState.Count; ++i) {
-			if (bb.InVarState [i].Eq (repairing [i].Item1)) {
-				bb.InVarState [i] = repairing [i].Item2;
-				break;
+			for (int j = 0; j < repairing.Count; ++j) {
+				if (bb.InVarState [i].Eq (repairing [j].Item1)) {
+					bb.InVarState [i] = repairing [j].Item2;
+					break;
+				}
 			}
 		}
 	}

@@ -15,6 +15,7 @@ FILES = src/SimpleJit.X86/Assembler.cs \
 		src/SimpleJit.Compiler/Compiler.cs	\
 		src/SimpleJit.Compiler/FrontEnd.cs	\
 		src/SimpleJit.Compiler/RegisterAllocator.cs	\
+		src/SimpleJit.Compiler/ConstantPropagation.cs	\
 		src/External/DataConverter.cs
 
 TEST_FILES = test/SimpleJit.X86/RegisterTest.cs \
