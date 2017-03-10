@@ -353,7 +353,6 @@ table (:Field) { |tb|
   tb.flags = :ushort #enum:FieldAttributes
   tb.name = :string
   tb.signature = :blob
-  tb.paramList = index :Param
 }
 
 table (:MethodDef) { |tb|
@@ -384,6 +383,13 @@ table (:MemberRef) { |tb|
   tb.parent = coded :MemberRefParent
   tb.name = :string
   tb.signature = :blob
+}
+
+table (:Constant) { |tb|
+  tb.id = 0x0B
+  tb.constType = :ushort
+  tb.parent = coded :HasConstant
+  tb.value = :blob
 }
 
 table (:CustomAttribute) { |tb|
@@ -469,6 +475,12 @@ table (:ExportedType) { |tb|
   tb.typeName = :string
   tb.typeNamespace = :string
   tb.implementation = coded :Implementation
+}
+
+table (:NestedClass) { |tb|
+  tb.id = 0x29
+  tb.nestedClass = index :TypeDef
+  tb.enclosingClass = index :TypeDef
 }
 
 table (:ManifestResource) { |tb|
