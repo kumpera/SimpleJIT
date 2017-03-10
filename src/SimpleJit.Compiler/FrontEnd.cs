@@ -81,8 +81,12 @@ internal class EvalStack {
 		switch (op) {
 		case Opcode.Ble: return Ops.Ble;
 		case Opcode.Blt: return Ops.Blt;
-		case Opcode.Brfalse: return Ops.Beq; //we emil a compare to zero
-		case Opcode.Brtrue: return Ops.Bne; //we emil a compare to zero
+		case Opcode.Brfalse:
+		case Opcode.BrfalseS:
+			return Ops.Beq; //we emil a compare to zero
+		case Opcode.Brtrue:
+		case Opcode.BrtrueS:
+			return Ops.Bne; //we emil a compare to zero
 		default: throw new Exception ($"{op} is not a condop");
 		}
 	}
@@ -414,6 +418,9 @@ public class FrontEndTranslator {
 				break;
 
 			case Opcode.Brfalse:
+			case Opcode.Brtrue:
+			case Opcode.BrfalseS:
+			case Opcode.BrtrueS:
 				s.EmitBoolBranch (it.Opcode, bb.To [0], bb.To [1]);
 				if (it.HasNext)
 					throw new Exception ("Branch MUST be last op in a BB");

@@ -43,8 +43,8 @@ public class Driver {
 			var ml = new List<MethodData>  ();
 			for (int i = 0; i < img.MethodDefTable.Count; ++i) {
 				var method = img.LoadMethodDef (i);
-				if (method.Name != "test_1_load_bool")
-				// if (method.Name == "Main")
+				// if (method.Name != "test_1_load_bool")
+				if (method.Name == "Main")
 					continue;
 
 				Compiler compiler = new Compiler (method);
