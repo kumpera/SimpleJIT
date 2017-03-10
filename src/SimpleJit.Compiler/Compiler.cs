@@ -55,6 +55,8 @@ namespace SimpleJit.Compiler {
 		Blt,
 		Bg,
 		Bge,
+		Bne,
+		Beq,
 		Br,
 		//Pseudo ops used by reg alloc
 		LoadArg,
@@ -151,6 +153,8 @@ namespace SimpleJit.Compiler {
 			case Ops.Blt:
 			case Ops.Bg:
 			case Ops.Bge:
+			case Ops.Bne:
+			case Ops.Beq:
 				return $"{Op} {CallInfos[0]} {CallInfos[1]}";
 			case Ops.Br:
 				return $"{Op} {CallInfos[0]}";
@@ -241,6 +245,8 @@ public class BasicBlock {
 	internal ISet<int> DefVars = new HashSet<int> ();
 	public List<VarState> InVarState { get; set; }
 	internal RegPrefs[] RegPrefs { get; set; }
+
+	public int StackArgs { get; set; }
 
 	Compiler compiler;
 	Ins first, last;
@@ -632,6 +638,8 @@ public class Compiler {
 			case Ops.Blt:
 			case Ops.Bg:
 			case Ops.Bge:
+			case Ops.Beq:
+			case Ops.Bne:
 				ra.CondBranch (ins, ins.CallInfos);
 				break;
 			case Ops.CmpI:
@@ -756,6 +764,8 @@ public class Compiler {
 		case Ops.Blt: return "jl";
 		case Ops.Bg: return "jg";
 		case Ops.Bge: return "jge";
+		case Ops.Bne: return "jne";
+		case Ops.Beq: return "je";
 		default: throw new Exception ($"Not a branch op {op}");
 		}
 	}
@@ -805,7 +815,9 @@ public class Compiler {
 				case Ops.Ble:
 				case Ops.Blt:
 				case Ops.Bg:
-				case Ops.Bge: {
+				case Ops.Bge:
+				case Ops.Bne:
+				case Ops.Beq: {
 					var mi = BranchOpToJmp (ins.Op);
 					asm.WriteLine ($"\t{mi} _{method.Name}_BB{ins.CallInfos[0].Target.Number}");
 					break;

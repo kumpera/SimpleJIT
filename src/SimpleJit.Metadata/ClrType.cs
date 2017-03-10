@@ -33,8 +33,11 @@ namespace SimpleJit.Metadata {
 public enum ElementType {
 	Void = 0x01,
 	Int32 = 0x08,
+	String = 0x0e,
+	SzArray = 0x1d,
 	CMOD_REQD = 0x1f,
 	CMOD_OPT = 0x20,
+
 }
 
 public abstract class ClrType {
@@ -42,8 +45,32 @@ public abstract class ClrType {
 
 	public static readonly ClrType Void = new PrimitiveType (ElementType.Void);
 	public static readonly ClrType Int32 = new PrimitiveType (ElementType.Int32);
+	public static readonly ClrType String = new TypeDefinition ("System", "String");
+
+
+	public static ClrType NewSzArray (ClrType[] cmod, ClrType elem) {
+		if (cmod != null)
+			throw new Exception ("cmod not supported!");
+		return new ArrayType (elem);
+	}
 }
 
+public class ArrayType : ClrType {
+	ClrType elementType;
+
+	public ArrayType (ClrType elementType) {
+		this.elementType = elementType;
+	}
+}
+
+public class TypeDefinition : ClrType {
+	string ns, name;
+
+	public TypeDefinition (string ns, string name) {
+		this.ns = ns;
+		this.name = name;
+	}
+}
 public class PrimitiveType : ClrType {
 	ElementType type;
 	internal PrimitiveType (ElementType type) {

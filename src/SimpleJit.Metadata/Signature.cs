@@ -72,6 +72,10 @@ public class Signature {
 			return data[idx++];
 		}
 
+		internal ClrType[] ReadCustomMod () {
+			return null; //FIXME
+		}
+
 		internal ClrType ReadType () {
 			ElementType t;
 			switch (t = (ElementType)ReadByte ()) {
@@ -82,6 +86,14 @@ public class Signature {
 				return ClrType.Void;
 			case ElementType.Int32:
 				return ClrType.Int32;
+			case ElementType.String:
+				return ClrType.String;
+			case ElementType.SzArray: {
+				ClrType[] cmod = ReadCustomMod ();
+				ClrType etype = ReadType ();
+				return ClrType.NewSzArray (cmod, etype);
+			}
+
 			default:
 				throw new Exception ($"Can't decode type {t:X}"); 
 			}

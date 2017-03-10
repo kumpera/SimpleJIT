@@ -41,18 +41,32 @@ internal struct StackValue {
 }
 
 internal class EvalStack {
-	Stack <Ins> stack = new Stack <Ins> ();
 	BasicBlock bb;
 
 	Stack <StackValue> stack2 = new Stack <StackValue> ();
 	Dictionary <int, int> varToVreg = new Dictionary <int, int> ();
 	
+
+	static int StackVar (int v) {
+		return -1000 - v;
+	}
+
+	static bool IsStackVar (int v) {
+		return v <= -1000;
+	}
+
 	public EvalStack (BasicBlock bb) {
 		this.bb = bb;
 		Console.WriteLine ("initial var map:");
 		foreach (var v in bb.InVars) {
-			varToVreg [v] = bb.NextReg ();
-			Console.WriteLine ($"\t{v} == {varToVreg [v]}");
+			int reg = bb.NextReg ();
+			if (IsStackVar (v)) {
+				stack2.Push (StackValue.Var (reg));
+				Console.WriteLine ($"\tpushed {reg}");
+			} else {
+				varToVreg [v] = reg;
+				Console.WriteLine ($"\t{v} == {reg}");
+			}
 		}
 	}
 
@@ -67,6 +81,8 @@ internal class EvalStack {
 		switch (op) {
 		case Opcode.Ble: return Ops.Ble;
 		case Opcode.Blt: return Ops.Blt;
+		case Opcode.Brfalse: return Ops.Beq; //we emil a compare to zero
+		case Opcode.Brtrue: return Ops.Bne; //we emil a compare to zero
 		default: throw new Exception ($"{op} is not a condop");
 		}
 	}
@@ -77,6 +93,8 @@ internal class EvalStack {
 		case Ops.Blt: return Ops.Bge;
 		case Ops.Bg: return Ops.Ble;
 		case Ops.Bge: return Ops.Blt;
+		case Ops.Beq: return Ops.Bne;
+		case Ops.Bne: return Ops.Beq;
 		default: throw new Exception ($"{op} is not a condop");
 		}
 	}
@@ -198,14 +216,66 @@ internal class EvalStack {
 		});
 	}
 
+	public void EmitBoolBranch (Opcode cond, BasicBlock bb1, BasicBlock bb2) {
+		Console.WriteLine ("BoolCondBranch {0}", cond);
+
+		Console.WriteLine ("varToVreg before cond:");
+		foreach (var kv in varToVreg)
+			Console.WriteLine ($"\t{kv.Key} -> {kv.Value}");
+		var r0 = stack2.Pop ();
+		if (stack2.Count > 0)
+			throw new Exception ("AHA!");
+
+		var infos = new CallInfo [2];
+		infos [0] = new CallInfo (varToVreg, bb1);
+		infos [1] = new CallInfo (varToVreg, bb2);
+
+
+		if (r0.IsConst)
+			throw new Exception ("CAN'T HANDLE Cond->FIXED branch");
+
+		bb.Append (new Ins (Ops.CmpI) {
+			R0 = r0.value,
+			Const0 = 0,
+		});
+
+		bb.Append (new Ins (CilToCondOp (cond)) {
+			CallInfos = infos,
+		});
+	}
+
+	int Flush (StackValue val) {
+		if (val.IsVar)
+			return val.value;
+		int nextReg = bb.NextReg ();
+		bb.Append (new Ins (Ops.IConst) {
+			Dest = nextReg,
+			Const0 = val.value,
+		});
+		return nextReg;
+	}
 	public void EmitBranch (BasicBlock to) {
 		Console.WriteLine ("Branch BB{0}", to.Number);
+		if (stack2.Count > 0) {
+			if (to.FirstIns != null && to.StackArgs != stack2.Count)
+				throw new Exception ($"Target BB{to.Number} expected {to.StackArgs} stack args but current BB passes {stack2.Count}!");
+			if (to.StackArgs != stack2.Count) {
+				to.StackArgs = stack2.Count;
+				for (int i = 0; i < stack2.Count; ++i)
+					to.InVars.Add (StackVar (i));
+			}
+			while (stack2.Count > 0) {
+				var val = stack2.Pop ();
+				varToVreg [StackVar (stack2.Count)] = Flush (val);
+			}
+		}
+
 		CallInfo info = new CallInfo (varToVreg, to);
 
-		var i = new Ins (Ops.Br) {
+		var ins = new Ins (Ops.Br) {
 			CallInfos = new CallInfo[] { info },
 		};
-		bb.Append (i);
+		bb.Append (ins);
 	}
 
 	int PopVreg () {
@@ -227,6 +297,7 @@ internal class EvalStack {
 			throw new Exception ($"Invalid stack type {val.type}");
 		}
 	}
+
 	public void EmitCall (MethodData md) {
 		var sig = md.Signature;
 		Ins ins;
@@ -269,7 +340,7 @@ public class FrontEndTranslator {
 	int ArgToDic (int arg) {
 		return 1 + arg;
 	}
-	
+
 	public void Translate () {
 		Console.WriteLine ("Emitting body of BB{0}", bb.Number);
 		var varTable = new Dictionary <int, int> ();
@@ -291,7 +362,13 @@ public class FrontEndTranslator {
 			case Opcode.LdcI4_3:
 			case Opcode.LdcI4_4:
 			case Opcode.LdcI4_5:
+			case Opcode.LdcI4_6:
+			case Opcode.LdcI4_7:
+			case Opcode.LdcI4_8:
 				s.PushInt ((int)it.Opcode - (int)Opcode.LdcI4_0);
+				break;
+			case Opcode.LdcI4:
+				s.PushInt (it.DecodeParamI ());
 				break;
 			case Opcode.LdcI4S:
 				s.PushInt (it.DecodeParamI ());
@@ -311,10 +388,10 @@ public class FrontEndTranslator {
 			case Opcode.Ldloc1:
 			case Opcode.Ldloc2:
 			case Opcode.Ldloc3:
-			s.LoadVar (LocalToDic ((int)it.Opcode - (int)Opcode.Ldloc0));
+				s.LoadVar (LocalToDic ((int)it.Opcode - (int)Opcode.Ldloc0));
 				break;
 			case Opcode.LdlocS:
-			s.LoadVar (LocalToDic (it.DecodeParamI ()));
+				s.LoadVar (LocalToDic (it.DecodeParamI ()));
 				break;
 
 			case Opcode.Ldarg0:
@@ -325,7 +402,7 @@ public class FrontEndTranslator {
 				break;
 
 			case Opcode.StargS:
-			s.StoreVar (ArgToDic (it.DecodeParamI ()));
+				s.StoreVar (ArgToDic (it.DecodeParamI ()));
 				break;
 
 			case Opcode.Blt:
@@ -336,7 +413,15 @@ public class FrontEndTranslator {
 				done = true;
 				break;
 
+			case Opcode.Brfalse:
+				s.EmitBoolBranch (it.Opcode, bb.To [0], bb.To [1]);
+				if (it.HasNext)
+					throw new Exception ("Branch MUST be last op in a BB");
+				done = true;
+				break;
+
 			case Opcode.Br:
+			case Opcode.BrS:
 				s.EmitBranch (bb.To [0]);
 				if (it.HasNext)
 					throw new Exception ("Branch MUST be last op in a BB");
@@ -366,6 +451,7 @@ public class FrontEndTranslator {
 			if (bb.To.Count == 1)
 				s.EmitBranch (bb.To [0]);
 		}
+		Console.WriteLine ($"AFTER TRANSLATE: {bb}");
 	}
 }
 }

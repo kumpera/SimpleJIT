@@ -1158,6 +1158,8 @@ public class RegPreferencesPass {
 			case Ops.Ble:
 			case Ops.Blt:
 			case Ops.Bg:
+			case Ops.Bne:
+			case Ops.Beq:
 				ForwardToBB (bb, ins.CallInfos [0]);
 				ForwardToBB (bb, ins.CallInfos [1]);
 				break;

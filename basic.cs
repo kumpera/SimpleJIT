@@ -129,4 +129,9 @@ public static class Foo {
 			a = b + e;
 		return c + a;
 	}
+
+	public static int test_1_load_bool () {
+		bool a = true;
+		return a? 1: 0;
+	}
 }
