@@ -455,7 +455,7 @@ class RegAllocState {
 
 				var targetVS = info.Target.InVarState [i];
 				var thisVS = varState [info.Args [i]];
-				if (!thisVS.Eq (targetVS))
+				if (targetVS.IsLive && !thisVS.Eq (targetVS))
 					repairing.Add (Tuple.Create (targetVS, thisVS));
 			}
 			if (repairing.Count > 0)
@@ -584,7 +584,8 @@ found_swap:
 			}
 		} else {
 			for (int i = 0; i < info.Args.Count; ++i) {
-				reqs.Add (new AllocRequest (info.Args [i], true, info.Target.InVarState [i]));
+				var vs = info.Target.InVarState [i];
+				reqs.Add (new AllocRequest (info.Args [i], true, vs.IsLive ? vs : (VarState?)null));
 			}
 		}
 	}
@@ -597,7 +598,7 @@ found_swap:
 		for (int i = 0; i < info.Args.Count; ++i) {
 			var source = info.AllocResult [i];
 
-			if (!bb.InVarState [i].Eq (source))
+			if (bb.InVarState [i].IsLive && !bb.InVarState [i].Eq (source))
 				repairing.Add (Tuple.Create (bb.InVarState [i], source));
 		}
 		if (repairing.Count > 0)
@@ -988,8 +989,8 @@ found_swap:
 		bb.InVarState = new List<VarState> ();
 		for (int i = 0; i < bb.InVars.Count; ++i) {
 			var vs = varState [i];
-			if (!vs.IsLive)
-				throw new Exception ($"Bad REGALLOC didn't allocate vreg {i}!");
+			// if (!vs.IsLive)
+			// 	throw new Exception ($"Bad REGALLOC didn't allocate vreg {i}!");
 			bb.InVarState.Add (vs);
 		}
 

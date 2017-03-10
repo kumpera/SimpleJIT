@@ -79,6 +79,7 @@ namespace SimpleJit.Compiler {
 	public class CallInfo {
 		public List<int> Args { get; set; }
 		public List<VarState> AllocResult { get; set; }
+		public List<Ins> CpropValues { get; set; } //XXX this is fugly :D
 
 		public BasicBlock Target { get; set; }
 		public bool NeedRepairing { get; set; }
@@ -206,6 +207,7 @@ namespace SimpleJit.Compiler {
 			i.Prev = this;
 			this.Next = i;
 		}
+
 		public void Prepend (Ins i) {
 			if (i.Prev != null)
 				throw new Exception ("TODO multi op prepend");
@@ -216,6 +218,15 @@ namespace SimpleJit.Compiler {
 
 			i.Next = this;
 			this.Prev = i;
+		}
+
+		public void ReplaceWith (Ins r) {
+			r.Prev = Prev;
+			r.Next = Next;
+			if (Prev != null)
+				Prev.Next = r;
+			if (Next != null)
+				Next.Prev = r;
 		}
 	}
 
@@ -367,6 +378,23 @@ public class BasicBlock {
 		// }
 
 		throw new Exception ($"Could not find BB at 0x{offset:X}");
+	}
+
+	public CallInfo InfoFor (BasicBlock bb) {
+		CallInfo[] infos = LastIns.CallInfos;
+		for (int j = 0; j < infos.Length; ++j) {
+			if (infos [j].Target == bb)
+				return infos [j];
+		}
+		return null;
+	}
+
+	public void ReplaceWith (Ins orig, Ins replace) {
+		orig.ReplaceWith (replace);
+		if (first == orig)
+			first = replace;
+		if (last == orig)
+			last = replace;
 	}
 }
 
@@ -893,6 +921,11 @@ public class Compiler {
 		CodeGen (asm);
 	}
 
+	public void Dump (string reason) {
+		Console.WriteLine (reason);
+		for (var bb = first_bb; bb != null; bb = bb.NextInOrder)
+			Console.WriteLine (bb);
+	}
 	//XXX fix this to respect predecessor ordering
 	public void ForwardPropPass (Action<BasicBlock> cb) {
 		BasicBlock bb;

@@ -60,7 +60,7 @@ run-test: bin/SimpleJit_test.dll
 	 nunit-console2 bin/SimpleJit_test.dll
 
 bin/%.exe: samples/%.cs
-	mcs /unsafe /r:bin/SimpleJit.dll -out:$@ $<
+	mcs -debug /unsafe /r:bin/SimpleJit.dll -out:$@ $<
 
 .PHONY: run_test
 

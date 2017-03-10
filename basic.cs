@@ -117,12 +117,12 @@ public static class Foo {
 		return 30;
 	}
 
-	public static int test_23_1_2_cprop_dce (int a, int b) {
+	public static int test_33_1_2_cprop_dce (int a, int b) {
 		int d = 10;
 		int e = 20;
 		int c = 0;
 		d = d + 1;
-		e = e + 1;
+		e = d + e;
 		if (a > b)
 			c = a + d;
 		else
