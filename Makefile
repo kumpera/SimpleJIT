@@ -16,7 +16,8 @@ FILES = src/SimpleJit.X86/Assembler.cs \
 		src/SimpleJit.Compiler/FrontEnd.cs	\
 		src/SimpleJit.Compiler/RegisterAllocator.cs	\
 		src/SimpleJit.Compiler/ConstantPropagation.cs	\
-		src/External/DataConverter.cs
+		src/External/DataConverter.cs	\
+		src/SimpleJit.Compiler/IRGenerated.cs
 
 TEST_FILES = test/SimpleJit.X86/RegisterTest.cs \
 			 test/SimpleJit.X86/IndirectRegisterTest.cs \
@@ -46,6 +47,9 @@ src/SimpleJit.Cil/OpcodesTableGenerated.cs: src/SimpleJit.Cil.Generators/opcode-
 
 src/SimpleJit.Cil/MetadataTableGenerated.cs: src/SimpleJit.Cil.Generators/table-defs-emit.rb
 	ruby src/SimpleJit.Cil.Generators/table-defs-emit.rb  > src/SimpleJit.Cil/MetadataTableGenerated.cs
+
+src/SimpleJit.Compiler/IRGenerated.cs: src/SimpleJit.Compiler.Generators/ir-emit.rb
+	ruby src/SimpleJit.Compiler.Generators/ir-emit.rb  > src/SimpleJit.Compiler/IRGenerated.cs
 
 libtest.dll: libtest.cs
 	mcs -debug libtest.cs -target:library -out:libtest.dll

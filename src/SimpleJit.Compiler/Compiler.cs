@@ -46,38 +46,6 @@ namespace SimpleJit.Compiler {
 		
 	}
 
-	public enum Ops {
-		IConst,
-		Mov,
-		Add,
-		Cmp,
-		Ble,
-		Blt,
-		Bg,
-		Bge,
-		Bne,
-		Beq,
-		Br,
-		//Pseudo ops used by reg alloc
-		LoadArg,
-		SpillVar,
-		SpillConst,
-		FillVar,
-		SetRet,
-		Nop,
-
-		//Early ISEL ops
-		AddI,
-		CmpI,
-
-		//Call ops
-		Call,
-		VoidCall,
-
-		//Reg allow, MUST NOT BE USED outside as violates use/def sempantics of Ins
-		Swap,
-	}
-
 	public class CallInfo {
 		public List<int> Args { get; set; }
 		public List<VarState> AllocResult { get; set; }
@@ -106,7 +74,7 @@ namespace SimpleJit.Compiler {
 		}
 	}
 
-	public class Ins {
+	public partial class Ins {
 		public Ins (Ops op) {
 			this.Op = op;
 			Dest = R0 = R1 = -100;
@@ -143,53 +111,9 @@ namespace SimpleJit.Compiler {
 			}
 		}
 
-		public override string ToString () {
-			switch (Op) {
-			case Ops.IConst:
-				return $"{Op} {DStr} <= {Const0}";
-			case Ops.Mov:
-				return $"{Op} {DStr} <= {R0Str}";
-			case Ops.Ble:
-			case Ops.Blt:
-			case Ops.Bg:
-			case Ops.Bge:
-			case Ops.Bne:
-			case Ops.Beq:
-				return $"{Op} {CallInfos[0]} {CallInfos[1]}";
-			case Ops.Br:
-				return $"{Op} {CallInfos[0]}";
-			case Ops.LoadArg:
-				return $"{Op} {DStr} <= REG_ARG {Const0}";
-			case Ops.SetRet:
-				return $"{Op} {R0Str}";
-			case Ops.Nop:
-				return $"Nop";
-			case Ops.Add:
-				return $"{Op} {DStr} <= {R0Str} {R1Str}";
-			case Ops.AddI:
-				return $"{Op} {DStr} <= {R0Str} {Const0}";
-			case Ops.Cmp:
-				return $"{Op} {R0Str} {R1Str}";
-			case Ops.CmpI:
-				return $"{Op} {R0Str} {Const0}";
-			case Ops.FillVar:
-				return $"{Op} {DStr} <= [{Const0}]";
-			case Ops.SpillVar:
-				return $"{Op} [{Const0}] <= {R0Str}";
-			case Ops.SpillConst:
-				return $"{Op} [{Const1}] <= {Const0}";
-			case Ops.Call:
-			case Ops.VoidCall: {
-				string args = string.Join (",", CallVars.Select (_ => _.V2S ()));
-				if (Op == Ops.Call)
-					return $"{Op} {DStr} <= {Method.Name} ({args})";
-				else
-					return $"{Op} {Method.Name} ({args})";
-			}
-			case Ops.Swap:
-				return $"{Op} {R0Str} <> {R1Str}";
-			default:
-				return $"{Op} {DStr} <= {R0Str} {R1Str} #FIXME";
+		string CallArgsStr {
+			get {
+				return string.Join (",", CallVars.Select (_ => _.V2S ()));
 			}
 		}
 

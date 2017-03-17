@@ -17,8 +17,11 @@ This is a prototype compiler to validate if EBBs with arguments (an extreme vari
 	Produce AOT images compat with mono as a final POC for this.
 
 # TODO
-	LVN in the front-end
+	Fix SpillConst some Const0 is always the address
+	
+ 	LVN in the front-end
 	DCE and x-block const prop
+
 
 	3 pass alloc that does backwards for liveness, then forward for prefs, then backwards again for alloc.
 		The first backwards pass would allow us to give callee-saved prefs and some spill heuristics.
