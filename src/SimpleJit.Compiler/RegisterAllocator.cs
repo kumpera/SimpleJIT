@@ -350,10 +350,7 @@ class RegAllocState {
 			var reg = varState [regularVreg].reg;
 			varState [regularVreg].reg = Register.None;
 			varState [regularVreg].spillSlot = AllocSpillSlot (-1);
-			var ins = new Ins (Ops.FillVar) {
-				Dest = MaskReg (reg),
-				Const0 = varState [regularVreg].spillSlot,
-			};
+			var ins = Ins.NewFillVar (MaskReg (reg), varState [regularVreg].spillSlot);
 			ins.SetNext (spillIns);
 			spillIns = ins;
 			AssignReg (vreg, reg, inUse);
@@ -386,10 +383,7 @@ class RegAllocState {
 		if (vs.IsSpill) {
 			Console.WriteLine ($"***need to emit spill for {ar.vreg}");
 
-			var ins = new Ins (Ops.SpillVar) {
-				R0 = MaskReg (res),
-				Const0 = vs.spillSlot,
-			};
+			var ins = Ins.NewSpillVar (MaskReg (res), vs.spillSlot);
 
 			ins.SetNext (spillIns);
 			spillIns = ins;
@@ -469,22 +463,13 @@ class RegAllocState {
 		if (varPair.Item2.IsSpill) {
 			if (varPair.Item1.IsSpill)
 				throw new Exception ($"DONT KNOW HOW TO REPAIR mem2mem {varPair}");
-			bb.Prepend (new Ins (Ops.FillVar) {
-				Dest = MaskReg (varPair.Item1.reg),
-				Const0 = varPair.Item2.spillSlot
-			});
+			bb.Prepend (Ins.NewFillVar (MaskReg (varPair.Item1.reg), varPair.Item2.spillSlot));
 		} else if (varPair.Item1.IsSpill) {
 			throw new Exception ($"DONT KNOW HOW TO REPAIR with SpillVar {varPair}");
 
-			bb.Prepend (new Ins (Ops.SpillVar) {
-				R0 = MaskReg (varPair.Item2.reg),
-				Const0 = varPair.Item1.spillSlot,
-			});
+			bb.Prepend (Ins.NewSpillVar (MaskReg (varPair.Item2.reg), varPair.Item1.spillSlot));
 		} else {
-			bb.Prepend (new Ins (Ops.Mov) {
-				Dest = MaskReg (varPair.Item1.reg),
-				R0 = MaskReg (varPair.Item2.reg)
-			});
+			bb.Prepend (Ins.NewMov (MaskReg (varPair.Item1.reg), MaskReg (varPair.Item2.reg)));
 		}
 	}
 
@@ -492,11 +477,7 @@ class RegAllocState {
 		if (!varPair.Item1.IsReg ||!varPair.Item2.IsReg)
 			throw new Exception ("Can only swap regs");
 
-		bb.Prepend (new Ins (Ops.Swap) {
-			R0 = MaskReg (varPair.Item1.reg),
-			R1 = MaskReg (varPair.Item1.reg),
-		});
-		
+		bb.Prepend (Ins.NewSwap (MaskReg (varPair.Item1.reg), MaskReg (varPair.Item1.reg)));
 	}
 
 	static void EmitRepairCode (BasicBlock bb, List<Tuple<VarState, VarState>> repairing) {
@@ -609,12 +590,12 @@ found_swap:
 		//This just kills the reg
 		var vs = varState [vreg];
 		if (!vs.IsLive) {
-			ins.Op = Ops.Nop;
+			ins.MakeNop ();
 		} else if (vs.IsReg) {
 			ins.Dest = Conv (vreg);
 			regToVar [(int)vs.reg] = -1;
 		} else {
-			ins.Op = Ops.SpillConst;
+			ins.Op = Ops.SpillConst; //FIXME this needs an op-to-spillop conv
 			ins.Const1 = vs.spillSlot;
 		}
 
@@ -636,7 +617,7 @@ found_swap:
 					ins.Append (spillIns);
 			}
 
-			ins.Op = Ops.Nop;
+			ins.MakeNop ();
 			return;
 		}
 
@@ -649,7 +630,7 @@ found_swap:
 				regToVar [(int)vsTo.reg] = from;
 			if (vsTo.IsSpill)
 				spillSlots [vsTo.spillSlot] = true;
-			ins.Op = Ops.Nop;
+			ins.MakeNop ();
 		} else {
 			if (vsFrom.IsReg && vsTo.IsReg) {
 				ins.Dest = Conv (to);
@@ -660,9 +641,7 @@ found_swap:
 				if (vsTo.IsSpill)
 					throw new Exception ($"IMPLEMENT ME: spilled mov {vsFrom.IsSpill} {vsTo.IsSpill}");
 				if (vsFrom.IsSpill && !vsFrom.IsReg) {
-					ins.Op = Ops.FillVar;
-					ins.Dest = Conv (to);
-					ins.Const0 = vsFrom.spillSlot;
+					ins.ReplaceWith (Ins.NewFillVar (Conv (to), vsFrom.spillSlot));
 				} else {
 					throw new Exception ("NRIEjid");
 				}
@@ -882,7 +861,7 @@ found_swap:
 			Console.WriteLine ($"Need to fixup incoming regs. I want {reg} but have {vs}");
 			args_repairing.Add (Tuple.Create (vs, new VarState (reg)));
 		}
-		ins.Op = Ops.Nop;
+		ins.MakeNop ();
 	}
 
 	Ins SpillAroundCalls (int vreg)

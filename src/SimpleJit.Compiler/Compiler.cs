@@ -156,6 +156,11 @@ namespace SimpleJit.Compiler {
 			if (Next != null)
 				Next.Prev = r;
 		}
+
+		public void MakeNop () {
+			Op = Ops.Nop;
+			Dest = R0 = R1 = -100;
+		}
 	}
 
 public class BasicBlock {
