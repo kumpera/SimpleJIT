@@ -17,8 +17,13 @@ This is a prototype compiler to validate if EBBs with arguments (an extreme vari
 	Produce AOT images compat with mono as a final POC for this.
 
 # TODO
-	Fix SpillConst some Const0 is always the address
-	
+	Fix SpillConst so Const0 is always the address (not the case for other ops - ?maybe go full typed args?)
+	Keep poking at the RA table design
+	Merge the 2 ra branch funcs (DirectBranch and CondBranch)
+	Add clob support (support SetRet and Mul/Div)
+		Actually, this already happens with DA1 x DA1Clob (mov x addi)
+	Kill LoadArg and SetRet and use in/out BB args instead?
+
  	LVN in the front-end
 	DCE and x-block const prop
 

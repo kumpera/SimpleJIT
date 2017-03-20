@@ -856,7 +856,6 @@ found_swap:
 		DoAlloc (reqs, ref spillIns);
 		if (spillIns != null)
 			throw new Exception ("DirectBranch can't handle spills");
-		
 
 		for (int j = 0; j < infos.Length; ++j)
 			this.SetCallInfoResult (infos [j]);

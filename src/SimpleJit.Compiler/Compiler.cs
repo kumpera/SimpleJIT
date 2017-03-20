@@ -545,48 +545,51 @@ public class Compiler {
 		for (Ins ins = bb.LastIns, prev = null; ins != null; ins = prev) {
 			Console.WriteLine ($"Before {ins.ToString ()}");
 			prev = ins.Prev;
-			switch (ins.Op) {
-			case Ops.IConst:
+			switch (ins.GetRegAllocCat ()) {
+			case RegAllocCat.D:
 				ra.Def (ins, ins.Dest);
 				break;
-			case Ops.Mov:
+
+			case RegAllocCat.DA1:
 				ra.Move (ins, ins.Dest, ins.R0);
 				break;
-			case Ops.Add:
+
+			case RegAllocCat.DA2:
 				ra.BinOp (ins, ins.Dest, ins.R0, ins.R1);
 				break;
-			case Ops.AddI:
+
+			case RegAllocCat.DA1Clob:
 				ra.UnOp (ins, ins.Dest, ins.R0);
 				break;
-			case Ops.Ble:
-			case Ops.Blt:
-			case Ops.Bg:
-			case Ops.Bge:
-			case Ops.Beq:
-			case Ops.Bne:
-				ra.CondBranch (ins, ins.CallInfos);
-				break;
-			case Ops.CmpI:
-				ra.CmpI (ins, ins.R0);
-				break;
-			case Ops.Cmp:
+
+			case RegAllocCat.A2:
 				ra.Cmp (ins, ins.R0, ins.R1);
 				break;
-			case Ops.Br:
+
+			case RegAllocCat.BR1:
 				ra.DirectBranch (ins, ins.CallInfos);
 				break;
-			case Ops.SetRet:
+			case RegAllocCat.BR2:
+				ra.CondBranch (ins, ins.CallInfos);
+				break;
+			case RegAllocCat.A1:
+				ra.CmpI (ins, ins.R0);
+				break;
+			case RegAllocCat.A1R:
 				ra.SetRet (ins, ins.R0);
 				break;
-			case Ops.LoadArg:
-				ra.LoadArg (ins, ins.Dest, ins.Const0);
-				break;
-			case Ops.Call:
+			case RegAllocCat.ICall:
 				ra.Call (ins, ins.Dest, ins.CallVars);
 				break;
+			case RegAllocCat.ARG:
+				ra.LoadArg (ins, ins.Dest, ins.Const0);
+				break;
+			case RegAllocCat.VCall:
+				throw new Exception ("Can't regalloc a void call :(");
 			default:
-				throw new Exception ($"Don't now how to reg alloc {ins}");
+				throw new Exception ($"Invalid regalloc category ({ins.GetRegAllocCat ()}) for ins ({ins})");
 			}
+
 			Console.WriteLine ($"After {ins.ToString ()}\n\t{ra.State}");
 		}
 		spillAreaUsed = Math.Max (spillAreaUsed, ra.Finish ());
