@@ -719,10 +719,7 @@ found_swap:
 		if (!vsR0.IsLive)
 			AssignVS (r0, varState [dest]);
 		else {
-			ins.Prepend (new Ins (Ops.Mov) {
-				Dest = MaskReg (varState [dest].reg),
-				R0 = MaskReg (vsR0.reg),
-			});
+			ins.Prepend (Ins.NewMov (MaskReg (varState [dest].reg), MaskReg (vsR0.reg)));
 		}
 
 		ins.Dest = Conv (dest);
@@ -758,10 +755,7 @@ found_swap:
 		if (!vsR0.IsLive)
 			AssignVS (r0, varState [dest]);
 		else {
-			ins.Prepend (new Ins (Ops.Mov) {
-				Dest = MaskReg (varState [dest].reg),
-				R0 = MaskReg (vsR0.reg),
-			});
+			ins.Prepend (Ins.NewMov (MaskReg (varState [dest].reg), MaskReg (vsR0.reg)));
 		}
 
 		ins.Dest = Conv (dest);
@@ -878,20 +872,14 @@ found_swap:
 				var reg = CallConv.callee_saved [i];
 				AssignReg (vreg, reg, null);
 
-				return new Ins (Ops.Mov) {
-					Dest = MaskReg (oldReg),
-					R0 = MaskReg (reg)
-				};
+				return Ins.NewMov (MaskReg (oldReg), MaskReg (reg));
 			}
 		}
 
 		//no callee saves regs available :(
 		varState [vreg].reg = Register.None;
 		varState [vreg].spillSlot = AllocSpillSlot (-1);
-		return new Ins (Ops.FillVar) {
-			Dest = MaskReg (oldReg),
-			Const0 = varState [vreg].spillSlot,
-		};
+		return Ins.NewFillVar (MaskReg (oldReg), varState [vreg].spillSlot);
 	}
 
 	public void Call (Ins ins, int dest, int[] argVars) {
@@ -910,10 +898,7 @@ found_swap:
 			Console.WriteLine ($"need to spill {vreg} as it's used a return reg");
 			
 			if (vs.IsReg) {
-	   			 postSpill = new Ins (Ops.Mov) {
-	   				Dest = MaskReg (vs.reg),
-					R0 = MaskReg (retReg)
-	   			};
+				postSpill = Ins.NewMov (MaskReg (vs.reg), MaskReg (retReg));
 				regToVar [(int)vs.reg] = -1; //XXX assign reg should do this?
 			} else {
 				throw new Exception ("Need to handle return to spill");
