@@ -29,7 +29,6 @@
 using System.IO;
 
 using NUnit.Framework;
-using NUnit.Framework.Extensions;
 
 namespace SimpleJit.X86 {
 

@@ -30,8 +30,6 @@ using System;
 using System.IO;
 
 using NUnit.Framework;
-using NUnit.Framework.Extensions;
-
 
 namespace SimpleJit.X86 {
 
@@ -93,9 +91,8 @@ public class IndirectRegisterTest : BuiltinRegisters {
 	}
 
 	[Test]
-	[ExpectedException (typeof (ArgumentException))]
 	public void BadIndirectRegReg () {
-		var x = EAX + ESP;
+		Assert.Throws (typeof (ArgumentException), () => { var x = EAX + ESP; });
 	}
 
 	[Test]
@@ -120,9 +117,8 @@ public class IndirectRegisterTest : BuiltinRegisters {
 	}
 
 	[Test]
-	[ExpectedException (typeof (ArgumentException))]
 	public void BadIndirectRegRegWithScale () {
-		var x = EAX * 5;
+		Assert.Throws (typeof (ArgumentException), () => { var x = EAX * 5; });
 	}
 }
 

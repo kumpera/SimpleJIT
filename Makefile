@@ -36,8 +36,8 @@ bin:
 bin/SimpleJit.dll: $(FILES)
 	mcs -debug /unsafe -target:library -out:bin/SimpleJit.dll $(FILES)
 
-bin/SimpleJit_test.dll: bin/SimpleJit.dll $(TEST_FILES)
-	mcs -debug -target:library -out:bin/SimpleJit_test.dll -r:bin/SimpleJit.dll -r:nunit.framework.dll -r:nunit.framework.extensions.dll  -r:nunit.core.dll $(TEST_FILES)  
+bin/SimpleJit_test.dll: bin/SimpleJit.dll $(TEST_FILES) lib/nunit.framework.dll
+	mcs -debug -target:library -out:bin/SimpleJit_test.dll -r:bin/SimpleJit.dll -r:lib/nunit.framework.dll $(TEST_FILES)  
 
 bin/compiler.exe: bin/SimpleJit.dll $(COMPILER_FILES)
 	mcs -debug /unsafe -out:bin/compiler.exe /r:bin/SimpleJit.dll $(COMPILER_FILES)
@@ -57,16 +57,22 @@ libtest.dll: libtest.cs
 basic.dll: basic.cs libtest.dll
 	mcs -debug /unsafe basic.cs -target:library -out:basic.dll -r:libtest.dll
 
+bin/nunit.framework.dll lib/nunit.framework.dll packages/NUnit.ConsoleRunner.3.6.1/tools/nunit3-console.exe: packages.config
+	nuget install  packages.config  -OutputDirectory packages
+	mkdir -p lib
+	cp packages/NUnit.3.7.1/lib/net45/nunit.framework.dll lib/
+	cp packages/NUnit.3.7.1/lib/net45/nunit.framework.dll bin/
+
 compile: bin/SimpleJit.dll bin/SimpleJit_test.dll
 	@echo done
 
 run-test: bin/SimpleJit_test.dll
-	 nunit-console2 bin/SimpleJit_test.dll
+	 mono packages/NUnit.ConsoleRunner.3.6.1/tools/nunit3-console.exe bin/SimpleJit_test.dll
 
 bin/%.exe: samples/%.cs
 	mcs -debug /unsafe /r:bin/SimpleJit.dll -out:$@ $<
 
-.PHONY: run_test
+.PHONY: run-test
 
 
 basic.dll_test.s basic.dll_driver.c: basic.dll bin/compiler.exe

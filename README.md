@@ -23,10 +23,13 @@ This is a prototype compiler to validate if EBBs with arguments (an extreme vari
 	Add clob support (support SetRet and Mul/Div)
 		Actually, this already happens with DA1 x DA1Clob (mov x addi)
 	Kill LoadArg and SetRet and use in/out BB args instead?
+	The whole regalloc probably needs to be rewritten as it mixes spilling, reg alloc and insel all together.
+
+	** The goal is to get enough in place that adding mul and div happens only though ir-emit
+		it's all messed up <o>
 
  	LVN in the front-end
 	DCE and x-block const prop
-
 
 	3 pass alloc that does backwards for liveness, then forward for prefs, then backwards again for alloc.
 		The first backwards pass would allow us to give callee-saved prefs and some spill heuristics.
