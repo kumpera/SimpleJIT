@@ -189,7 +189,7 @@ inst (:SpillVar) { |i|
 inst (:SpillConst) { |i|
   i.consts = 2
 
-  i.fmt = "{Op} [{Const1}] <= [{Const0}]"
+  i.fmt = "{Op} [{Const0}] <= [{Const1}]"
 }
 
 use_const (:FillVar) { |i| 

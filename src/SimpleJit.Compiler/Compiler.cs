@@ -788,8 +788,8 @@ public class Compiler {
 					break;
 				}
 				case Ops.SpillConst: {
-					int offset = spillOffset + ins.Const1 * 8;
-					var str = ins.Const0.ToString ("X");
+					int offset = spillOffset + ins.Const0 * 8;
+					var str = ins.Const1.ToString ("X");
 					asm.WriteLine ($"\tmovq $0x{str}, -0x{(offset):X}(%rbp)");
 					break;
 				}

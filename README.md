@@ -21,7 +21,6 @@ This is a prototype compiler to validate if EBBs with arguments (an extreme vari
 
 
 # TODO
-	Fix SpillConst so Const0 is always the address (not the case for other ops - ?maybe go full typed args?)
 	Move isel magic from RA to a post-ra peephole pass. IE, ICONST+SPill -> SpillConst should be done after
 
 	Keep poking at the RA table design

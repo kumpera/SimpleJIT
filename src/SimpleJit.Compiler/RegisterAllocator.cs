@@ -647,7 +647,8 @@ found_swap:
 			regToVar [(int)vs.reg] = -1;
 		} else {
 			ins.Op = Ops.SpillConst; //FIXME this needs an op-to-spillop conv
-			ins.Const1 = vs.spillSlot;
+			ins.Const1 = ins.Const0;
+			ins.Const0 = vs.spillSlot;
 		}
 
 		KillVar (dest);
