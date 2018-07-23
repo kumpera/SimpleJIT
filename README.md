@@ -19,7 +19,6 @@ This is a prototype compiler to validate if EBBs with arguments (an extreme vari
 # Actionable TODO (actual tasks I can do in 1-2 hours without having to onboard back too much)
 	Figure out the state of IRGen and next steps.
 
-
 # TODO
 	Move isel magic from RA to a post-ra peephole pass. IE, ICONST+SPill -> SpillConst should be done after
 
@@ -28,7 +27,7 @@ This is a prototype compiler to validate if EBBs with arguments (an extreme vari
 	Add clob support (support SetRet and Mul/Div)
 		Actually, this already happens with DA1 x DA1Clob (mov x addi)
 	Kill LoadArg and SetRet and use in/out BB args instead?
-	The whole regalloc probably needs to be rewritten as it mixes spilling, reg alloc and insel all together.
+	The whole regalloc probably needs to be rewritten as it mixes spilling, reg alloc and isel all together.
 
 	** The goal is to get enough in place that adding mul and div happens only though ir-emit
 		it's all messed up <o>
