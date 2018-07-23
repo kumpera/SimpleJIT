@@ -16,6 +16,10 @@ This is a prototype compiler to validate if EBBs with arguments (an extreme vari
 	Show some aggressive high level opts.
 	Produce AOT images compat with mono as a final POC for this.
 
+# Actionable TODO (actual tasks I can do in 1-2 hours without having to onboard back too much)
+	Figure out the state of IRGen and next steps.
+
+
 # TODO
 	Fix SpillConst so Const0 is always the address (not the case for other ops - ?maybe go full typed args?)
 	Keep poking at the RA table design
