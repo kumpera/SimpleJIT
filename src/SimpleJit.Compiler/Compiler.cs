@@ -41,9 +41,8 @@ namespace SimpleJit.Compiler {
 		internal static string V2S (this int vreg) {
 			if (vreg >= 0)
 				return "R" + vreg;
-			return UnmaskReg (vreg).ToString ();
+			return vreg.UnmaskReg ().ToString ();
 		}
-		
 	}
 
 	public class CallInfo {
@@ -715,6 +714,11 @@ public class Compiler {
 		}
 	}
 
+	string IRegName (int vreg) {
+		var reg = vreg.UnmaskReg ();
+		return reg.GetIReg ().ToString ().ToLower ();
+	}
+
 	void CodeGen (StreamWriter asm) {
 		Console.WriteLine ("--- CODEGEN");
 
@@ -773,23 +777,23 @@ public class Compiler {
 				case Ops.Add:
 					if (ins.Dest != ins.R0)
 						throw new Exception ("Bad binop encoding!");
-					asm.WriteLine ($"\taddq %{ins.R1.V2S().ToLower ()}, %{ins.Dest.V2S().ToLower ()}");
+					asm.WriteLine ($"\taddl %{IRegName (ins.R1)}, %{IRegName (ins.Dest)}");
 					break;
 				case Ops.AddI:
 					if (ins.Dest != ins.R0)
 						throw new Exception ("Bad binop encoding!");
 					if (ins.Const0 == 1)
-						asm.WriteLine ($"\tincq %{ins.Dest.V2S().ToLower ()}");
+						asm.WriteLine ($"\tincl %{IRegName (ins.Dest)}");
 					else
-						asm.WriteLine ($"\taddq $0x{ins.Const0:X}, %{ins.Dest.V2S().ToLower ()}");
+						asm.WriteLine ($"\taddl $0x{ins.Const0:X}, %{IRegName (ins.Dest)}");
 					break;
 				case Ops.Mul:
 					if (ins.Dest != ins.R0)
 						throw new Exception ("Bad binop encoding!");
-					asm.WriteLine ($"\timulq %{ins.R1.V2S().ToLower ()}, %{ins.Dest.V2S().ToLower ()}");
+					asm.WriteLine ($"\timull %{IRegName (ins.R1)}, %{IRegName(ins.Dest)}");
 					break;
 				case Ops.MulI:
-					asm.WriteLine ($"\timulq $0x{ins.Const0:X}, %{ins.R0.V2S().ToLower ()}, %{ins.Dest.V2S().ToLower ()}");
+					asm.WriteLine ($"\timull $0x{ins.Const0:X}, %{IRegName(ins.R0)}, %{IRegName(ins.Dest)}");
 					break;
 				case Ops.SetRet:
 				case Ops.Nop:
