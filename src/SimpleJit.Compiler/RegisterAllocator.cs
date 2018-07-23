@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 
 namespace SimpleJit.Compiler {
-	
+
 /*
 arg regs RDI RSI RDX RCX R8 R9
 caller saved regs RAX RCX RDX RSI RDI R8 R9 R10 - I.E. scratch regs
@@ -179,7 +179,7 @@ public class AllocRequest : IComparable<AllocRequest> {
 	}
 }
 
-
+public enum RU { No, Yes, Clobber }
 class RegAllocState {
 	VarState[] varState;
 	int[] regToVar;
@@ -586,31 +586,17 @@ found_swap:
 			EmitRepairCode (bb, repairing);
 	}
 
-	public void Def (Ins ins, int vreg) {
-		//This just kills the reg
-		var vs = varState [vreg];
-		if (!vs.IsLive) {
-			ins.MakeNop ();
-		} else if (vs.IsReg) {
-			ins.Dest = Conv (vreg);
-			regToVar [(int)vs.reg] = -1;
-		} else {
-			ins.Op = Ops.SpillConst; //FIXME this needs an op-to-spillop conv
-			ins.Const1 = vs.spillSlot;
-		}
 
-		KillVar (vreg);
-	}
-
-
-	public void Move (Ins ins, int to, int from) {
-		var vsTo = varState [to];
-		var vsFrom = varState [from];
-		//this is a dead store, reduce the live range of from
-		if (!vsTo.IsLive) {
-			if (!vsFrom.IsLive) {
+	public void Move (Ins ins) {
+		int dest = ins.Dest;
+		int r0 = ins.R0;
+		var vsDest = varState [dest];
+		var vsR0 = varState [r0];
+		//this is a dead store, reduce the live range of r0
+		if (!vsDest.IsLive) {
+			if (!vsR0.IsLive) {
 				SortedSet<AllocRequest> reqs = new SortedSet<AllocRequest> ();
-				reqs.Add (new AllocRequest (from));
+				reqs.Add (new AllocRequest (r0));
 				Ins spillIns = null;
 				DoAlloc (reqs, ref spillIns);
 				if (spillIns != null)
@@ -621,33 +607,50 @@ found_swap:
 			return;
 		}
 
-		//If this is the last usage of from, we can treat this as a rename
-		if (!vsFrom.IsLive) {
-			Console.WriteLine ($"RENAMING {from} to {to}");
-			KillVar (to);
-			varState [from] = vsTo;
-			if (vsTo.IsReg)
-				regToVar [(int)vsTo.reg] = from;
-			if (vsTo.IsSpill)
-				spillSlots [vsTo.spillSlot] = true;
+		//If this is the last usage of r0, we can treat this as a rename
+		if (!vsR0.IsLive) {
+			Console.WriteLine ($"RENAMING {r0} to {dest}");
+			KillVar (dest);
+			varState [r0] = vsDest;
+			if (vsDest.IsReg)
+				regToVar [(int)vsDest.reg] = r0;
+			if (vsDest.IsSpill)
+				spillSlots [vsDest.spillSlot] = true;
 			ins.MakeNop ();
 		} else {
-			if (vsFrom.IsReg && vsTo.IsReg) {
-				ins.Dest = Conv (to);
-				ins.R0 = Conv (from);
+			if (vsR0.IsReg && vsDest.IsReg) {
+				ins.Dest = Conv (dest);
+				ins.R0 = Conv (r0);
 			} else {
-				if (vsFrom.IsSpill && vsTo.IsSpill)
+				if (vsR0.IsSpill && vsDest.IsSpill)
 					throw new Exception ("IMPLEMENT ME: mem2mem mov");
-				if (vsTo.IsSpill)
-					throw new Exception ($"IMPLEMENT ME: spilled mov {vsFrom.IsSpill} {vsTo.IsSpill}");
-				if (vsFrom.IsSpill && !vsFrom.IsReg) {
-					ins.ReplaceWith (Ins.NewFillVar (Conv (to), vsFrom.spillSlot));
+				if (vsDest.IsSpill)
+					throw new Exception ($"IMPLEMENT ME: spilled mov {vsR0.IsSpill} {vsDest.IsSpill}");
+				if (vsR0.IsSpill && !vsR0.IsReg) {
+					ins.ReplaceWith (Ins.NewFillVar (Conv (dest), vsR0.spillSlot));
 				} else {
 					throw new Exception ("NRIEjid");
 				}
 			}
-			KillVar (to);
+			KillVar (dest);
 		}
+	}
+
+	public void IConst (Ins ins) {
+		//This just kills the reg
+		int dest = ins.Dest;
+		var vs = varState [dest];
+		if (!vs.IsLive) {
+			ins.MakeNop ();
+		} else if (vs.IsReg) {
+			ins.Dest = Conv (dest);
+			regToVar [(int)vs.reg] = -1;
+		} else {
+			ins.Op = Ops.SpillConst; //FIXME this needs an op-to-spillop conv
+			ins.Const1 = vs.spillSlot;
+		}
+
+		KillVar (dest);
 	}
 
 	bool ShouldSwap (Ins ins) {
@@ -664,6 +667,7 @@ found_swap:
 			return true;
 		}
 
+		//neither R0 and R1 are live and dest has prefence for R1 reg. On x86, cuz R0 is clobbered, swapping avoids a copy
 		if (!vsR0.IsLive && !vsR1.IsLive && vsDest.IsReg && bb.RegPrefs [ins.R1].DoesLike (vsDest.reg)) {
 			Console.WriteLine ("r1 likes dest");
 			return true;
@@ -672,169 +676,95 @@ found_swap:
 		return false;
 	}
 
-	public void BinOp (Ins ins, int dest, int r0, int r1) {
+	public void GeneralInsAlloc (Ins ins, RU dest, RU r0, RU r1) {
 		if (ShouldSwap (ins)) {
 			Console.WriteLine ($"SWAPPING args for {ins}");
-			ins.R0 = r1;
-			ins.R1 = r0;
-			r1 = ins.R1;
-			r0 = ins.R0;
+			int r1_reg = ins.R1;
+			int r0_reg = ins.R0;
+			ins.R0 = r1_reg;
+			ins.R1 = r0_reg;
 		}
 
-		var vsDest = varState [dest];
-		var vsR0 = varState [r0];
-		var vsR1 = varState [r1];
-
-		var inUse = new HashSet<Register> ();
 		SortedSet<AllocRequest> reqs = new SortedSet<AllocRequest> ();
+		var inUse = new HashSet<Register> ();
+		VarState vsR0 = default (VarState), vsR1, vsDest;
 
-		//something must use $dest
-		if (!vsDest.IsLive)
-			throw new Exception ($"Dead var or bug? dest: {dest} {vsDest}");
+		if (ins.CallInfos != null) {
+			for (int j = 0; j < ins.CallInfos.Length; ++j)
+				this.CallInfo (ins.CallInfos [j], reqs);
+		}
 
-		//if $dest is spilled, we need to generate a spill 
-		if (vsDest.IsSpill)
-			reqs.Add (new AllocRequest (dest));
-		else
-			inUse.Add (vsDest.reg);
+		if (dest != RU.No) {
+			vsDest = varState [ins.Dest];
+			//something must use $dest
+			if (!vsDest.IsLive)
+				throw new Exception ($"Dead var or bug? dest: {dest} {vsDest}");			
 
-		//Binop follows x86 rules of r0 getting clobbered.
-		if (vsR0.IsLive && vsR1.IsLive) {
+			//if $dest is spilled, we need to generate a spill
+			if (vsDest.IsSpill)
+				reqs.Add (new AllocRequest (ins.Dest));
+			else
+				inUse.Add (vsDest.reg);
+		}
+
+		if (r0 != RU.No) {
+			vsR0 = varState [ins.R0];
+
+			if (vsR0.IsLive && vsR0.IsReg)
+				inUse.Add (vsR0.reg);
+			else if (r0 == RU.Yes) //if r0 is clobbered we use dest
+				reqs.Add (new AllocRequest (ins.R0));
+		}
+
+		if (r1 != RU.No) {
+			if (r1 == RU.Clobber)
+				throw new Exception ("Can't regalloc a clobbered r1");
+
+			vsR1 = varState [ins.R1];
 			
+			if (vsR1.IsLive && vsR1.IsReg)
+				inUse.Add (vsR1.reg);
+			else
+				reqs.Add (new AllocRequest (ins.R1));
 		}
-		//if vsR0 is not live, we assign it to whatever dest gets
-		if (vsR0.IsLive && vsR0.IsReg)
-			inUse.Add (vsR0.reg);
-
-		if (!vsR1.IsLive)
-			reqs.Add (new AllocRequest (r1));
-		else if (vsR1.IsReg)
-			inUse.Add (vsR1.reg);
 
 		Ins spillIns = null;
 		DoAlloc (reqs, ref spillIns, inUse);
-		if (spillIns != null)
-			ins.Append (spillIns);
 
-		if (!vsR0.IsLive)
-			AssignVS (r0, varState [dest]);
-		else {
-			ins.Prepend (Ins.NewMov (MaskReg (varState [dest].reg), MaskReg (vsR0.reg)));
+		if (ins.CallInfos != null) {
+			if (spillIns != null)
+				throw new Exception ("Branching can't handle spills");
+
+			for (int j = 0; j < ins.CallInfos.Length; ++j)
+				this.SetCallInfoResult (ins.CallInfos [j]);
+		} else {
+			if (spillIns != null) {
+				if (ins.CallInfos != null)
+				ins.Append (spillIns);
+			}			
 		}
 
-		ins.Dest = Conv (dest);
-		ins.R0 = Conv (dest);
-		ins.R1 = Conv (r1);
-
-		KillVar (dest);
-	}
-
-	public void UnOp (Ins ins, int dest, int r0) {
-		var vsDest = varState [dest];
-		var vsR0 = varState [r0];
-
-		var inUse = new HashSet<Register> ();
-		SortedSet<AllocRequest> reqs = new SortedSet<AllocRequest> ();
-
-		if (!vsDest.IsLive)
-			throw new Exception ($"Dead var or bug? dest: {vsDest}");
-
-		if (vsDest.IsSpill)
-			reqs.Add (new AllocRequest (dest));
-		else
-			inUse.Add (vsDest.reg);
-
-		if (vsR0.IsLive && vsR0.IsReg)
-			inUse.Add (vsR0.reg);
-
-		Ins spillIns = null;
-		DoAlloc (reqs, ref spillIns, inUse);
-		if (spillIns != null)
-			ins.Append (spillIns);
-
-		if (!vsR0.IsLive)
-			AssignVS (r0, varState [dest]);
-		else {
-			ins.Prepend (Ins.NewMov (MaskReg (varState [dest].reg), MaskReg (vsR0.reg)));
+		if (r0 == RU.Yes) {
+			ins.R0 = Conv (ins.R0);
+		} else if (r0 == RU.Clobber) {
+			if (!vsR0.IsLive)
+				AssignVS (ins.R0, varState [ins.Dest]);
+			else
+				ins.Prepend (Ins.NewMov (MaskReg (varState [ins.Dest].reg), MaskReg (vsR0.reg)));
+			ins.R0 = Conv (ins.Dest);
 		}
-
-		ins.Dest = Conv (dest);
-		ins.R0 = Conv (dest);
-
-		KillVar (dest);
+		
+		if (r1 != RU.No)
+			ins.R1 = Conv (ins.R1);
+		if (dest != RU.No) {
+			int dest_reg = ins.Dest;
+			ins.Dest = Conv (dest_reg);
+			KillVar (dest_reg);
+		}
 	}
 
-	public void CmpI (Ins ins, int r0) {
-		var vsR0 = varState [r0];
-
-		SortedSet<AllocRequest> reqs = new SortedSet<AllocRequest> ();
-
-		if (!vsR0.IsLive)
-			reqs.Add (new AllocRequest (r0));
-
-		Ins spillIns = null;
-		DoAlloc (reqs, ref spillIns);
-		if (spillIns != null)
-			ins.Append (spillIns);
-
-		ins.R0 = Conv (r0);
-	}
-
-	public void Cmp (Ins ins, int r0, int r1) {
-		var vsR0 = varState [r0];
-		var vsR1 = varState [r1];
-
-		SortedSet<AllocRequest> reqs = new SortedSet<AllocRequest> ();
-		var inUse = new HashSet<Register> ();
-
-		if (vsR0.IsLive && vsR0.IsReg)
-			inUse.Add (vsR0.reg);
-		else
-			reqs.Add (new AllocRequest (r0));
-
-		if (vsR1.IsLive && vsR1.IsReg)
-			inUse.Add (vsR1.reg);
-		else
-			reqs.Add (new AllocRequest (r1));
-
-		Ins spillIns = null;
-		DoAlloc (reqs, ref spillIns);
-		if (spillIns != null)
-			ins.Append (spillIns);
-
-		ins.R0 = Conv (r0);
-		ins.R1 = Conv (r1);
-	}
-
-	public void CondBranch (Ins ins, CallInfo[] infos) {
-		SortedSet<AllocRequest> reqs = new SortedSet<AllocRequest> ();
-		for (int j = 0; j < infos.Length; ++j)
-			this.CallInfo (infos [j], reqs);
-
-		Ins spillIns = null;
-		DoAlloc (reqs, ref spillIns);
-		if (spillIns != null)
-			throw new Exception ("CondBranch can't handle spills");
-
-		for (int j = 0; j < infos.Length; ++j)
-			this.SetCallInfoResult (infos [j]);
-	}
-
-	public void DirectBranch (Ins ins, CallInfo[] infos) {
-		SortedSet<AllocRequest> reqs = new SortedSet<AllocRequest> ();
-		for (int j = 0; j < infos.Length; ++j)
-			this.CallInfo (infos [j], reqs);
-
-		Ins spillIns = null;
-		DoAlloc (reqs, ref spillIns);
-		if (spillIns != null)
-			throw new Exception ("DirectBranch can't handle spills");
-
-		for (int j = 0; j < infos.Length; ++j)
-			this.SetCallInfoResult (infos [j]);
-	}
-
-	public void SetRet (Ins ins, int vreg) {
+	public void SetRet (Ins ins) {
+		int vreg = ins.R0;
 		if (varState [vreg].IsLive)
 			throw new Exception ("SetReg MUST be the last use of the vreg on its BB");
 
@@ -882,7 +812,9 @@ found_swap:
 		return Ins.NewFillVar (MaskReg (oldReg), varState [vreg].spillSlot);
 	}
 
-	public void Call (Ins ins, int dest, int[] argVars) {
+	public void Call (Ins ins) {
+		int dest = ins.Dest;
+		int[] argVars = ins.CallVars;
 		var inUse = new HashSet<Register> ();
 
 		//handle return value
@@ -945,7 +877,6 @@ found_swap:
 		}
 
 		KillVar (dest);
-		// throw new Exception ($"all good! {ins}");
 	}
 
 	public int Finish () {

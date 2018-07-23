@@ -22,6 +22,8 @@ This is a prototype compiler to validate if EBBs with arguments (an extreme vari
 
 # TODO
 	Fix SpillConst so Const0 is always the address (not the case for other ops - ?maybe go full typed args?)
+	Move isel magic from RA to a post-ra peephole pass. IE, ICONST+SPill -> SpillConst should be done after
+
 	Keep poking at the RA table design
 	Merge the 2 ra branch funcs (DirectBranch and CondBranch)
 	Add clob support (support SetRet and Mul/Div)
@@ -31,6 +33,8 @@ This is a prototype compiler to validate if EBBs with arguments (an extreme vari
 
 	** The goal is to get enough in place that adding mul and div happens only though ir-emit
 		it's all messed up <o>
+
+	Make ForwardPrefs be based on codegen as well.
 
  	LVN in the front-end
 	DCE and x-block const prop

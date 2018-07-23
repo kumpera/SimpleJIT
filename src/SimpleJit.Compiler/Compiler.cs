@@ -552,45 +552,52 @@ public class Compiler {
 		for (Ins ins = bb.LastIns, prev = null; ins != null; ins = prev) {
 			Console.WriteLine ($"Before {ins.ToString ()}");
 			prev = ins.Prev;
+			//Alloc ops are: IConst, Move, GeneralInsAlloc, SetRet, Call, LoadArg
 			switch (ins.GetRegAllocCat ()) {
 			case RegAllocCat.D:
-				ra.Def (ins, ins.Dest);
+				ra.IConst (ins);
 				break;
 
 			case RegAllocCat.DA1:
-				ra.Move (ins, ins.Dest, ins.R0);
+				ra.Move (ins);
 				break;
 
 			case RegAllocCat.DA2:
-				ra.BinOp (ins, ins.Dest, ins.R0, ins.R1);
+				ra.GeneralInsAlloc (ins, RU.Yes, RU.Clobber, RU.Yes);
 				break;
 
 			case RegAllocCat.DA1Clob:
-				ra.UnOp (ins, ins.Dest, ins.R0);
+				ra.GeneralInsAlloc (ins, RU.Yes, RU.Clobber, RU.No);
 				break;
 
 			case RegAllocCat.A2:
-				ra.Cmp (ins, ins.R0, ins.R1);
+				ra.GeneralInsAlloc (ins, RU.No, RU.Yes, RU.Yes);
 				break;
 
 			case RegAllocCat.BR1:
-				ra.DirectBranch (ins, ins.CallInfos);
+				ra.GeneralInsAlloc (ins, RU.No, RU.No, RU.No);
 				break;
+
 			case RegAllocCat.BR2:
-				ra.CondBranch (ins, ins.CallInfos);
+				ra.GeneralInsAlloc (ins, RU.No, RU.No, RU.No);
 				break;
+
 			case RegAllocCat.A1:
-				ra.CmpI (ins, ins.R0);
+				ra.GeneralInsAlloc (ins, RU.No, RU.Yes, RU.No);
 				break;
+
 			case RegAllocCat.A1R:
-				ra.SetRet (ins, ins.R0);
+				ra.SetRet (ins);
 				break;
+
 			case RegAllocCat.ICall:
-				ra.Call (ins, ins.Dest, ins.CallVars);
+				ra.Call (ins);
 				break;
+
 			case RegAllocCat.ARG:
 				ra.LoadArg (ins, ins.Dest, ins.Const0);
 				break;
+
 			case RegAllocCat.VCall:
 				throw new Exception ("Can't regalloc a void call :(");
 			default:
