@@ -404,6 +404,8 @@ public class Compiler {
 				if (it.HasNext) {
 					var next = current.SplitAt (this, it.NextIndex, link: false);
 					current.LinkTo (epilogue);
+					if (next != null)
+						current.UnlinkTo (next);
 					current = next;
 				} else {
 					current.LinkTo (epilogue);
