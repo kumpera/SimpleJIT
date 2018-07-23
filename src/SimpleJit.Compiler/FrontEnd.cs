@@ -140,10 +140,27 @@ internal class EvalStack {
 		var r1 = stack2.Pop ();
 		var r0 = stack2.Pop ();
 
-		if (op != Opcode.Add)
-			throw new Exception ("Can only handle add for now");
+		int cval = 0;
+		Ops ir_op, ir_opi;
+		ir_op = ir_opi = default (Ops);
+
+		switch (op) {
+		case Opcode.Add:
+			cval = r1.value + r0.value;  //FIXME codegen this <o>
+			ir_op = Ops.Add;
+			ir_opi = Ops.AddI; //FIXME codegen this <o>
+			break;
+		case Opcode.Mul:
+			cval = r1.value * r0.value;  //FIXME codegen this <o>
+			ir_op = Ops.Mul;
+			ir_opi = Ops.MulI; //FIXME codegen this <o>
+			break;
+		default:
+		throw new Exception ($"Can't handle {op} for now");
+		}
+			
 		if (r0.IsConst && r1.IsConst) {
-			stack2.Push (StackValue.Int (r1.value + r0.value));
+			stack2.Push (StackValue.Int (cval));
 		} else if (r0.IsConst || r1.IsConst) {
 			int c;
 			int vreg;
@@ -155,7 +172,7 @@ internal class EvalStack {
 				c = r1.value;
 				vreg = r0.value;
 			}
-			bb.Append (new Ins (Ops.AddI) {
+			bb.Append (new Ins (ir_opi) {
 				Dest = nextReg,
 				R0 = vreg,
 				Const0 = c,
@@ -163,7 +180,7 @@ internal class EvalStack {
 			stack2.Push (StackValue.Var (nextReg));
 		} else {
 			int nextReg = bb.NextReg ();
-			bb.Append (new Ins (Ops.Add) {
+			bb.Append (new Ins (ir_op) {
 				Dest = nextReg,
 				R0 = r0.value,
 				R1 = r1.value
@@ -357,6 +374,7 @@ public class FrontEndTranslator {
 			case Opcode.Nop: //Right now nothing, later, seqpoints
 				break;
 			case Opcode.Add:
+			case Opcode.Mul:
 				s.PushBinOp (it.Opcode);
 				break;
 

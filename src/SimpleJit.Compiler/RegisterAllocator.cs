@@ -1043,8 +1043,11 @@ public class RegPreferencesPass {
 			//XXX we'd like if R0 could share reg with dreg, but we can only do this on a backward pass if this is the last use of R0
 			case Ops.Add:
 			case Ops.AddI:
+			case Ops.Mul:
+			case Ops.MulI:
 				// prefs [ins.Dest].LikesSameAs (ref prefs [ins.R0]);
 				break;
+			
 			case Ops.Cmp: //this has no constraints
 			case Ops.CmpI: //this has no constraints
 			case Ops.IConst:

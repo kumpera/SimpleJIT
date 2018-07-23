@@ -558,8 +558,12 @@ public class Compiler {
 				ra.IConst (ins);
 				break;
 
-			case RegAllocCat.DA1:
+			case RegAllocCat.Move:
 				ra.Move (ins);
+				break;
+
+			case RegAllocCat.DA1:
+				ra.GeneralInsAlloc (ins, RU.Yes, RU.Yes, RU.No);
 				break;
 
 			case RegAllocCat.DA2:
@@ -778,6 +782,14 @@ public class Compiler {
 						asm.WriteLine ($"\tincq %{ins.Dest.V2S().ToLower ()}");
 					else
 						asm.WriteLine ($"\taddq $0x{ins.Const0:X}, %{ins.Dest.V2S().ToLower ()}");
+					break;
+				case Ops.Mul:
+					if (ins.Dest != ins.R0)
+						throw new Exception ("Bad binop encoding!");
+					asm.WriteLine ($"\timulq %{ins.R1.V2S().ToLower ()}, %{ins.Dest.V2S().ToLower ()}");
+					break;
+				case Ops.MulI:
+					asm.WriteLine ($"\timulq $0x{ins.Const0:X}, %{ins.R0.V2S().ToLower ()}, %{ins.Dest.V2S().ToLower ()}");
 					break;
 				case Ops.SetRet:
 				case Ops.Nop:

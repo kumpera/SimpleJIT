@@ -152,8 +152,10 @@ end
 
 
 use_const (:IConst)
-unop (:Mov)
-binop (:Add)
+unop (:Mov) { |i|
+  i.cat[:RA] = :Move
+}
+
 bin_inst (:Cmp)
 
 cond_branch (:Ble)
@@ -197,10 +199,20 @@ use_const (:FillVar) { |i|
 }
 
 
-#Early ISEL ops
+
+binop (:Add)
 binop_const (:AddI) { |i|
   i.cat[:RA] = :DA1Clob
 }
+
+binop (:Mul)
+binop_const (:MulI)
+#  { |i|
+#   i.cat[:RA] = :DA1Clob
+# }
+
+
+#Early ISEL ops
 bin_inst_const (:CmpI)
 
 # Call ops

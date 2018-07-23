@@ -130,8 +130,23 @@ public static class Foo {
 		return c + a;
 	}
 
+	public static int test_30_3_10_imul (int a, int b) {
+		return a * b;
+	}
+
+	public static int test_130_3_10_imul (int a, int b) {
+		int c = a + b; //3 + 10 -> 13
+		int d = c * b; //13 * 10 -> 130
+		return d;
+	}
+
+	public static int test_30_3_imul (int a) {
+		return a * 10;
+	}
+
 	public static int test_1_load_bool () {
 		bool a = true;
 		return a? 1: 0;
 	}
+
 }
