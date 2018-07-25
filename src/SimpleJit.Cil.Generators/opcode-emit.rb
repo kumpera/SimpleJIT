@@ -125,11 +125,11 @@ def writeOpcodeInit el
 	    raise "unknown opcode operand type #{el.attributes['operandtype']} for opcode #{el.attributes['name']}"
 	end
 
-	puts "\t\t\t#{table} [#{el.attributes['op2']}] = new OpcodeTraits (#{flags}, \"#{opcodeName(el.attributes['name'])}\", #{el.attributes['op2']}, #{isExt} );" 
+	puts "\t\t\t#{table} [#{el.attributes['op2']}] = new OpcodeTraits (#{flags}, \"#{opcodeName(el.attributes['name'])}\", #{el.attributes['op2']}, #{isExt}, PopBehavior.#{el.attributes['stackbehaviourpop']}, PushBehavior.#{el.attributes['stackbehaviourpush']} );" 
 end
 
 def writeInvalidOpcode op, table, isExt
-	puts "\t\t\t#{table} [0x#{op.to_s 16}] = new OpcodeTraits (OpcodeFlags.Invalid, null, 0x#{op.to_s 16}, #{isExt});" 
+	puts "\t\t\t#{table} [0x#{op.to_s 16}] = new OpcodeTraits (OpcodeFlags.Invalid, null, 0x#{op.to_s 16}, #{isExt}, PopBehavior.Pop0, PushBehavior.Push0);" 
 end
 
 def writeOpcodeTable doc
@@ -153,14 +153,14 @@ def writeOpcodeTable doc
 
 		public static void Decode (byte opcode, out OpcodeTraits res) {
 			if (opcode > #{op_max})
-				res = new OpcodeTraits (OpcodeFlags.Invalid, null, opcode, false);
+				res = new OpcodeTraits (OpcodeFlags.Invalid, null, opcode, false, PopBehavior.Pop0, PushBehavior.Push0);
 			else
 				res = traits [opcode];
 		}
 
 		public static void DecodeExtended (byte opcode, out OpcodeTraits res) {
 			if (opcode > #{ext_max})
-				res = new OpcodeTraits (OpcodeFlags.Invalid, null, opcode, true);
+				res = new OpcodeTraits (OpcodeFlags.Invalid, null, opcode, true, PopBehavior.Pop0, PushBehavior.Push0);
 			else
 				res = extendedTraits [opcode];
 		}

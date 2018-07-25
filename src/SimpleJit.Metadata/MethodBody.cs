@@ -84,6 +84,14 @@ public struct IlIterator {
 		get { return current.flags; }
 	}
 
+	public PopBehavior PopBehavior {
+		get { return current.pop; }
+	}
+
+	public PushBehavior PushBehavior {
+		get { return current.push; }
+	}
+
 	public int DecodeParamI () {
 		return current.DecodeParamI (body, op_idx);
 	}

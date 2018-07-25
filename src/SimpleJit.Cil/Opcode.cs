@@ -62,23 +62,64 @@ namespace SimpleJit.CIL
 		OperandSwitch   = 0x0600,
 	}
 
+	public enum PopBehavior : byte {
+		Pop0,
+		Pop1,
+		Popi,
+		Popref,
+		Pop1_pop1,
+		Popi_popi,
+		Popi_popi_popi,
+		PopAll,
+		Varpop,
+		Popi_popi8,
+		Popi_popr4,
+		Popi_popr8,
+		Popref_pop1,
+		Popi_pop1,
+		Popref_popi,
+		Popref_popi_popi,
+		Popref_popi_popi8,
+		Popref_popi_popr4,
+		Popref_popi_popr8,
+		Popref_popi_popref
+	}
+
+	public enum PushBehavior : byte {
+		Push0,
+		Push1,
+		Pushi,
+		Pushref,
+		Pushi8,
+		Pushr4,
+		Pushr8,
+		Push1_push1,
+		Varpush
+	}
+
 	public struct OpcodeTraits {
 		internal readonly OpcodeFlags flags;
 		internal readonly String mnemonic;
 		internal readonly byte opcode;
 		internal readonly bool extended;
+		internal readonly PopBehavior pop;
+		internal readonly PushBehavior push;
 
-		public OpcodeTraits (OpcodeFlags flags, String mnemonic, byte opcode, bool extended) {
+		public OpcodeTraits (OpcodeFlags flags, String mnemonic, byte opcode, bool extended, PopBehavior pop, PushBehavior push) {
 			this.flags = flags;
 			this.mnemonic = mnemonic;
 			this.opcode = opcode;
 			this.extended = extended;
+			this.pop = pop;
+			this.push = push;
 		}
 
 		public OpcodeFlags Flags { get { return flags; } }
 		public String Mnemonic { get { return mnemonic; } }
 		public Opcode Opcode { get { return (Opcode)opcode; } }
 		public ExtendedOpcode ExtendedOpcode { get { return (ExtendedOpcode)opcode; } }
+		public PopBehavior PopBehavior { get { return pop; } }
+		public PushBehavior PushBehavior { get { return push; } }
 
 		public bool IsExtended { get { return extended; } } 
 		public bool IsValid { get { return (flags & OpcodeFlags.Invalid) == 0; } }
