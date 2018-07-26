@@ -53,3 +53,16 @@ This is a prototype compiler to validate if EBBs with arguments (an extreme vari
 
 The use of LoadArg sucks as it is the same reg shuffling problem of repairing and it doesn't allow for a global decision to be made.
 	-If we support external allocation of BB::InVars (as a way to handle LCOV), this becomes a common case
+
+
+# Indirect var design notes
+
+Indirect vars get the same treatment in the BB formation step, we just emit them differently.
+We keep use/def CPS shenanigans as it simplifies for AA to promote an indirect var to a direct var.
+
+What it means is that a def computes the address and its uses will consume that address.
+This does naively increase register pressure, but can be easily addressed by a cprop pass that fuses a ldaddr + load into a computed load when we compute frame layout.
+
+
+
+

@@ -151,6 +151,12 @@ def branch name
 end
 
 
+#mempos
+use_const (:LdAddr) { |i| i.fmt = "{Op} {DStr} <= global {Const0}" }
+unop (:LoadI4) { |i| i.fmt = "{Op} {DStr} <= [{R0Str}]" }
+bin_inst (:StoreI4) { |i| i.fmt = "{Op} [{R0Str}] <= {R1Str}" }
+
+
 use_const (:IConst)
 unop (:Mov) { |i|
   i.cat[:RA] = :Move
@@ -178,7 +184,7 @@ inst (:SetRet) { |i|
 #Pseudo ops used by reg alloc
 use_const (:LoadArg) { |i|
   i.cat[:RA] = :ARG
-  i.fmt = "{Op} {DStr} <= REG_ARG [{Const0}]"
+  i.fmt = "{Op} {DStr} <= REG_ARG ({Const0})"
 }
 
 inst (:SpillVar) { |i|
@@ -191,7 +197,7 @@ inst (:SpillVar) { |i|
 inst (:SpillConst) { |i|
   i.consts = 2
 
-  i.fmt = "{Op} [{Const0}] <= [{Const1}]"
+  i.fmt = "{Op} [{Const0}] <= ({Const1})"
 }
 
 use_const (:FillVar) { |i| 
@@ -288,7 +294,6 @@ puts "\t\tswitch (ins.Op) {"
 ins_to_cat.each_pair { |k, v| 
   v.each { |i| puts "\t\tcase Ops.#{i.name}:"}
   puts "\t\t\treturn RegAllocCat.#{k};"
-  puts "\t\t\tbreak;"
 }
 
 puts "\t\tdefault:"

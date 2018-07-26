@@ -45,6 +45,7 @@ internal class EvalStack {
 
 	Stack <StackValue> stack2 = new Stack <StackValue> ();
 	Dictionary <int, int> varToVreg = new Dictionary <int, int> ();
+	Dictionary<int, int> var_to_global;
 	
 
 	static int StackVar (int v) {
@@ -55,8 +56,9 @@ internal class EvalStack {
 		return v <= -1000;
 	}
 
-	public EvalStack (BasicBlock bb) {
+	public EvalStack (BasicBlock bb, Dictionary<int, int> var_to_global) {
 		this.bb = bb;
+		this.var_to_global = var_to_global;
 		Console.WriteLine ("initial var map:");
 		foreach (var v in bb.InVars) {
 			int reg = bb.NextReg ();
@@ -108,30 +110,111 @@ internal class EvalStack {
 		stack2.Push (StackValue.Int (c));
 	}
 
-
 	public void StoreVar (int cilVar) {
 		Console.WriteLine ("StoreVar {0}", cilVar);
-
 		var val = stack2.Pop ();
-		switch (val.type) {
-		case StackValueType.Int: {
-			int nextReg = bb.NextReg ();
-			bb.Append (new Ins (Ops.IConst) {
-				Dest = nextReg,
-				Const0 = val.value,
+
+		if (var_to_global.ContainsKey (cilVar)) {
+			Console.WriteLine ($"\tFound indirect store to global {var_to_global [cilVar]}");
+
+			//FIXME should we check if varToVreg [cilVar] has an existing addr var or ignore it?
+			int addr_var = bb.NextReg ();
+			// Console.WriteLine ("here?");
+			bb.Append (new Ins (Ops.LdAddr) {
+				Dest = addr_var,
+				Const0 = var_to_global [cilVar],
 			});
-			varToVreg [cilVar] = nextReg;
-			break;
-		}
-		case StackValueType.Variable:
-			varToVreg [cilVar] = val.value;
-			break;
+			varToVreg [cilVar] = addr_var;
+
+			int value_var = -1;
+			switch (val.type) {
+			case StackValueType.Int: {
+				value_var = bb.NextReg ();
+				bb.Append (new Ins (Ops.IConst) {
+					Dest = value_var,
+					Const0 = val.value,
+				});
+				break;
+			}
+			case StackValueType.Variable:
+				value_var = val.value;
+				break;
+			}
+
+			bb.Append (new Ins (Ops.StoreI4) {
+				R0 = addr_var,
+				R1 = value_var
+			});
+		} else {
+			switch (val.type) {
+			case StackValueType.Int: {
+				int nextReg = bb.NextReg ();
+				bb.Append (new Ins (Ops.IConst) {
+					Dest = nextReg,
+					Const0 = val.value,
+				});
+				varToVreg [cilVar] = nextReg;
+				break;
+			}
+			case StackValueType.Variable:
+				varToVreg [cilVar] = val.value;
+				break;
+			}
 		}
 	}
 
 	public void LoadVar (int cilVar) {
 		Console.WriteLine ("LoadVar {0}", cilVar);
-		stack2.Push (StackValue.Var (varToVreg [cilVar]));
+		if (var_to_global.ContainsKey (cilVar)) {
+			Console.WriteLine ($"\tFound indirect load of global {var_to_global [cilVar]}");
+			int addr_var = varToVreg [cilVar];
+			int val_var = bb.NextReg ();
+			bb.Append (new Ins (Ops.LoadI4) {
+				Dest = val_var,
+				R0 = addr_var
+			});
+			stack2.Push (StackValue.Var (val_var));
+		} else {
+			stack2.Push (StackValue.Var (varToVreg [cilVar]));
+		}
+	}
+
+	public void Ldaddr (int cilVar) {
+		Console.WriteLine ("Ldaddr {0}", cilVar);
+		if (!var_to_global.ContainsKey (cilVar))
+			throw new Exception ("Can't take the address of a variable that is not on var_to_global");
+
+		int addr_var = bb.NextReg ();
+		bb.Append (new Ins (Ops.LdAddr) {
+			Dest = addr_var,
+			Const0 = var_to_global [cilVar],
+		});
+
+		//we leave varToVreg untouched as we only use it for load/store tracking
+		//varToVreg [cilVar] = addr_var;
+		stack2.Push (StackValue.Var (addr_var));
+	}
+
+	public void LdInd () {
+		var addr_var = PopVreg ();
+
+		int val_var = bb.NextReg ();
+		bb.Append (new Ins (Ops.LoadI4) {
+			Dest = val_var,
+			R0 = addr_var
+		});
+
+		stack2.Push (StackValue.Var (val_var));			
+	}
+
+	public void Stind () {
+		var value_var = PopVreg ();
+		var addr_var = PopVreg ();
+
+		bb.Append (new Ins (Ops.StoreI4) {
+			R0 = addr_var,
+			R1 = value_var
+		});
 	}
 
 	public void PushBinOp (Opcode op) {
@@ -208,7 +291,6 @@ internal class EvalStack {
 		if (r0.IsConst && r1.IsConst) {
 			throw new Exception ("CAN'T HANDLE Cond->FIXED branch");
 		} else if (r0.IsConst || r1.IsConst) {
-			Console.WriteLine ("we got {0} {1}", r0, r1);
 			int c;
 			int vreg;
 			if (r0.IsConst) {
@@ -347,10 +429,12 @@ public class FrontEndTranslator {
 	MethodData method;
 	BasicBlock bb;
 	int localOffset;
+	Dictionary<int, int> var_to_global;
 
-	public FrontEndTranslator (MethodData method, BasicBlock bb) {
+	public FrontEndTranslator (MethodData method, BasicBlock bb, Dictionary<int, int> var_to_global) {
 		this.method = method;
 		this.bb = bb;
+		this.var_to_global = var_to_global;
 		localOffset = 1 + method.Signature.ParamCount;
 	}
 
@@ -367,7 +451,7 @@ public class FrontEndTranslator {
 		var varTable = new Dictionary <int, int> ();
 
 		var it = bb.GetILIterator ();
-		var s = new EvalStack (bb);
+		var s = new EvalStack (bb, var_to_global);
 		bool done = false;
 		while (it.MoveNext ()) {
 			switch (it.Opcode) {
@@ -425,6 +509,17 @@ public class FrontEndTranslator {
 
 			case Opcode.StargS:
 				s.StoreVar (ArgToDic (it.DecodeParamI ()));
+				break;
+
+			case Opcode.LdlocaS:
+				s.Ldaddr (LocalToDic (it.DecodeParamI ()));
+				break;
+
+			case Opcode.LdindI4:
+				s.LdInd ();
+				break;
+			case Opcode.StindI4:
+				s.Stind ();
 				break;
 
 			case Opcode.Blt:

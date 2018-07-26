@@ -45,6 +45,26 @@ namespace SimpleJit.Compiler {
 		}
 	}
 
+	enum EvalType {
+		Int32,
+		Int64,
+		Ptr,
+		Float,
+		Double
+	}
+
+	class CompilerType {
+		internal EvalType Kind { get; private set; }
+		internal ClrType Type { get; private set; }
+		
+		internal static CompilerType Int32 = new CompilerType (EvalType.Int32, ClrType.Int32);
+
+		CompilerType (EvalType kind, ClrType type) {
+			Kind = kind;
+			Type = type;
+		}
+	}
+
 	public class CallInfo {
 		public List<int> Args { get; set; }
 		public List<VarState> AllocResult { get; set; }
@@ -338,6 +358,13 @@ public class Compiler {
 	internal BasicBlock first_bb, epilogue;
 	internal int bb_number;
 
+	//this 2 sounds silly, we should combine them in a single array as the number of IL vars is known and fixed.
+	Dictionary<int, int> var_to_global = new Dictionary<int, int> ();
+	HashSet<int> indirectVars = new HashSet <int> ();
+
+	//not all excited about this, probably need more info like frame location (or should this be decoupled?)
+	List<CompilerType> globals = new List<CompilerType> ();
+
 	public Compiler (MethodData method) {
 		this.method = method;
 		Console.WriteLine ("compiling {0}", method.Name);
@@ -374,6 +401,8 @@ public class Compiler {
 				if (it.Opcode == Opcode.Jmp)
 					throw new Exception ("no support for jmp");
 				if (it.NextIndex >= current.End) {
+					Console.WriteLine ($"{current} => {current.NextInOrder}");
+
 					current.LinkTo (current.NextInOrder);
 					current = current.NextInOrder;
 				}
@@ -393,7 +422,7 @@ public class Compiler {
 				//XXX ensure that target is the first element
 				var target_offset = it.NextIndex + it.DecodeParamI ();
 				var next = current.SplitAt (this, it.NextIndex, link: true);
-				var target = first_bb.Find (target_offset).SplitAt (this, target_offset, link: true);
+				var target = first_bb.Find (target_offset).SplitAt (this, target_offset, link: false);
 				current.LinkTo (target);
 				current.MakeFirstDest (target);
 				current = next;
@@ -432,8 +461,14 @@ public class Compiler {
 	}
 
 	static void AddDef (ISet<int> inVars, ISet<int> defs, int var) {
-		Console.WriteLine ($"\t\tFound def of {var}");
+		if (!defs.Contains (var))
+			Console.WriteLine ($"\t\tFound def of {var}");
 		defs.Add (var);
+	}
+
+	void AddIndirect (ISet<int> inVars, ISet<int> defs, int var) {
+		Console.WriteLine ($"\t\tFound indirect load of {var}");
+		indirectVars.Add (var);
 	}
 
 	int LocalToDic (int local) {
@@ -444,17 +479,23 @@ public class Compiler {
 		return 1 + arg;
 	}
 
+	void AddGlobal (int var, CompilerType type) {
+		Console.WriteLine ($"New Global [{globals.Count}] for var {var} of type {type.Kind}");
+
+		var_to_global[var] = globals.Count;
+		globals.Add (type);
+	}
+
 	void EmitBasicBlockBodies () {
 		var list = new List<BasicBlock> (); //FIXME use a queue collection
 
 		Console.WriteLine ("=== BB code emit");
-		BasicBlock current;
 		//First to last we compute income regs due unknown uses
 
 		if (method.Signature.ReturnType != ClrType.Void)
 			epilogue.InVars.Add (0);
 
-		for (current = first_bb; current != null; current = current.NextInOrder) {
+		for (BasicBlock current = first_bb; current != null; current = current.NextInOrder) {
 			Console.WriteLine ($"processing {current}");
 
 			var it = current.GetILIterator ();
@@ -490,10 +531,16 @@ public class Compiler {
 				case Opcode.StargS:
 					AddDef (current.InVars, current.DefVars, ArgToDic (it.DecodeParamI ()));
 					break;
-
 				case Opcode.Ret:
 					AddDef (current.InVars, current.DefVars, 0);
 					break;
+				case Opcode.LdlocaS:
+					AddIndirect (current.InVars, current.DefVars, LocalToDic (it.DecodeParamI ()));
+					break;
+				case Opcode.LdargaS:
+					AddIndirect (current.InVars, current.DefVars, ArgToDic (it.DecodeParamI ()));
+					break;
+
 				}
 			}
 			//Queue leaf nodes as they are all ready
@@ -503,10 +550,23 @@ public class Compiler {
 			}
 		}
 
+		//handle indirect vars
+		foreach (var v in indirectVars)
+			AddGlobal (v, CompilerType.Int32);
+
+		// DumpBB ("Before handle indirect vars");
+		// if (indirectVars.Count > 0) {
+			// for (BasicBlock current = first_bb; current != null; current = current.NextInOrder) {
+			// 	current.InVars.ExceptWith (indirectVars);
+			// 	current.DefVars.ExceptWith (indirectVars);
+			// }
+			
+		// }
+
 		DumpBB ("Before converge");
 
 		while (list.Count > 0) {
-			current = list [0];
+			BasicBlock current = list [0];
 			list.RemoveAt (0);
 			current.Enqueued = false;
 			int inC = current.InVars.Count;
@@ -535,8 +595,8 @@ public class Compiler {
 		DumpBB ("Compute INVARS");
 
 		//First to last we compute income regs due unknown uses
-		for (current = first_bb; current != null; current = current.NextInOrder) {
-			new FrontEndTranslator (method, current).Translate ();
+		for (BasicBlock current = first_bb; current != null; current = current.NextInOrder) {
+			new FrontEndTranslator (method, current, var_to_global).Translate ();
 		}
 
 		DumpBB ("EmitIR done");
@@ -719,6 +779,10 @@ public class Compiler {
 		return reg.GetIReg ().ToString ().ToLower ();
 	}
 
+	int RoundUp (int val) {
+		return (val + 7) & ~0x7;
+	}
+
 	void CodeGen (StreamWriter asm) {
 		Console.WriteLine ("--- CODEGEN");
 
@@ -730,17 +794,22 @@ public class Compiler {
 		asm.WriteLine ("\tpushq %rbp");
 		asm.WriteLine ("\tmovq %rsp, %rbp");
 
+
 		//Emit save
 		int stack_space = (callee_saved.Count + spillAreaUsed) * 8;
+		stack_space += RoundUp (globals.Count * 4);
+		int localOffset = 0;
 		int spillOffset = 8;
 		if (stack_space > 0) {
-			asm.WriteLine ($"\tsubq 0x${stack_space:X}, %rsp");
+			asm.WriteLine ($"\tsubq $0x{stack_space:x}, %rsp");
 			int idx = 8;
 			foreach (var reg in callee_saved) {
-				asm.WriteLine ($"\tmovq ${reg.ToString ().ToLower ()}, -0x{idx:X}(%rbp)");
+				asm.WriteLine ($"\tmovq ${reg.ToString ().ToLower ()}, -0x{idx:x}(%rbp)");
 				idx += 8;
 			}
-			spillOffset = idx;
+
+			localOffset = idx;
+			spillOffset = RoundUp (localOffset + globals.Count * 4);
 		}
 
 		for (var bb = first_bb; bb != null; bb = bb.NextInOrder) {
@@ -756,8 +825,7 @@ public class Compiler {
 					if (ins.Const0 == 0) {
 						asm.WriteLine ($"\txorq %{ins.Dest.V2S().ToLower ()}, %{ins.Dest.V2S().ToLower ()}");
 					} else {
-						var str = ins.Const0.ToString ("X");
-						asm.WriteLine ($"\tmovq $0x{str}, %{ins.Dest.V2S().ToLower ()}");
+						asm.WriteLine ($"\tmovq $0x{ins.Const0:x}, %{ins.Dest.V2S().ToLower ()}");
 					}
 					break;
 				}
@@ -785,7 +853,7 @@ public class Compiler {
 					if (ins.Const0 == 1)
 						asm.WriteLine ($"\tincl %{IRegName (ins.Dest)}");
 					else
-						asm.WriteLine ($"\taddl $0x{ins.Const0:X}, %{IRegName (ins.Dest)}");
+						asm.WriteLine ($"\taddl $0x{ins.Const0:x}, %{IRegName (ins.Dest)}");
 					break;
 				case Ops.Mul:
 					if (ins.Dest != ins.R0)
@@ -793,25 +861,25 @@ public class Compiler {
 					asm.WriteLine ($"\timull %{IRegName (ins.R1)}, %{IRegName(ins.Dest)}");
 					break;
 				case Ops.MulI:
-					asm.WriteLine ($"\timull $0x{ins.Const0:X}, %{IRegName(ins.R0)}, %{IRegName(ins.Dest)}");
+					asm.WriteLine ($"\timull $0x{ins.Const0:x}, %{IRegName(ins.R0)}, %{IRegName(ins.Dest)}");
 					break;
 				case Ops.SetRet:
 				case Ops.Nop:
 					break;
 				case Ops.SpillVar: {
 					int offset = spillOffset + ins.Const0 * 8;
-					asm.WriteLine ($"\tmovq ${ins.R0.V2S().ToLower ()}, -0x{(offset):X}(%rbp)");
+					asm.WriteLine ($"\tmovq ${ins.R0.V2S().ToLower ()}, -0x{(offset):x}(%rbp)");
 					break;
 				}
 				case Ops.SpillConst: {
 					int offset = spillOffset + ins.Const0 * 8;
 					var str = ins.Const1.ToString ("X");
-					asm.WriteLine ($"\tmovq $0x{str}, -0x{(offset):X}(%rbp)");
+					asm.WriteLine ($"\tmovq $0x{str}, -0x{(offset):x}(%rbp)");
 					break;
 				}
 				case Ops.FillVar: {
 					int offset = spillOffset + ins.Const0 * 8;
-					asm.WriteLine ($"\tmovq -0x{offset:X}(%rbp), ${ins.Dest.V2S().ToString ().ToLower ()}");
+					asm.WriteLine ($"\tmovq -0x{offset:x}(%rbp), ${ins.Dest.V2S().ToString ().ToLower ()}");
 					break;
 				}
 				case Ops.CmpI: {
@@ -832,6 +900,24 @@ public class Compiler {
 					asm.WriteLine ($"\txchgl %{ins.R0.V2S().ToLower ()}, %{ins.R1.V2S().ToLower ()}");
 					break;
 				}
+
+				case Ops.StoreI4: {
+					//FIXME do variable layout!!!
+					asm.WriteLine ($"\tmovl %{IRegName (ins.R1)}, (%{ins.R0.V2S().ToLower ()})");
+					break;
+				}
+
+				case Ops.LoadI4: {
+					//FIXME do variable layout!!!
+					asm.WriteLine ($"\tmovl (%{ins.R0.V2S().ToString ().ToLower ()}), %{IRegName (ins.Dest)}");
+					break;
+				}
+
+				case Ops.LdAddr: {
+					//FIXME do variable layout!!!
+					asm.WriteLine ($"\tleaq -0x{localOffset + ins.Const0 * 4:x} (%rbp), %{ins.Dest.V2S().ToString ().ToLower ()}");
+					break;
+				}
 				default:
 					throw new Exception ($"Can't code gen {ins}");
 				}
@@ -844,7 +930,7 @@ public class Compiler {
 		if (callee_saved.Count > 0) {
 			int idx = 8;
 			foreach (var reg in callee_saved) {
-				asm.WriteLine ($"\tmovq -0x{idx:X}(%rbp), ${reg.ToString ().ToLower ()}");
+				asm.WriteLine ($"\tmovq -0x{idx:x}(%rbp), ${reg.ToString ().ToLower ()}");
 				idx += 8;
 			}
 		}

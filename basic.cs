@@ -149,4 +149,21 @@ public static class Foo {
 		return a? 1: 0;
 	}
 
+	public static int test_30_10_ind_load (int x)
+	{
+		int y = 20;
+		ref int z = ref y;	
+			
+		return x + z;
+	}
+
+	public static int test_41_10_add_const (int x)
+	{
+		int y = 30;
+		ref int z = ref y;
+		if (x > 9)
+			z = y + 1;
+		
+		return x + z;
+	}
 }

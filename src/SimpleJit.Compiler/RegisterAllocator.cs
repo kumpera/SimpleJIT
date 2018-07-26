@@ -1077,6 +1077,14 @@ public class RegPreferencesPass {
 			case Ops.IConst:
 			case Ops.SetRet: //this is a backwards constraint
 				break;
+
+			//no prefs
+			case Ops.LoadI4:
+			case Ops.StoreI4:
+			case Ops.LdAddr:
+				break;
+
+
 			case Ops.Ble:
 			case Ops.Blt:
 			case Ops.Bg:
